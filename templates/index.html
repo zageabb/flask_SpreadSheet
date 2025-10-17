@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Flask Spreadsheet</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="header-top">
+        <h1>Flask Spreadsheet</h1>
+        <div class="sheet-controls">
+          <label for="sheet-select" class="sr-only">Active sheet</label>
+          <select id="sheet-select" class="sheet-select" aria-label="Select sheet"></select>
+          <button id="rename-sheet" type="button" class="action-btn secondary">Rename</button>
+          <button id="save-sheet" type="button" class="action-btn secondary">Save Copy</button>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="add-row" type="button" class="action-btn">Add Row</button>
+        <button id="add-column" type="button" class="action-btn">Add Column</button>
+        <button id="reset-grid" type="button" class="action-btn secondary">Clear Sheet</button>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <section class="sheet-container">
+        <div class="sheet-wrapper">
+          <table id="sheet" aria-label="Spreadsheet"></table>
+        </div>
+        <div id="status" role="status" aria-live="polite" class="status">Ready</div>
+      </section>
+    </main>
+
+    <template id="cell-template">
+      <td contenteditable="true" spellcheck="false" class="cell"></td>
+    </template>
+
+    <script>
+      const initialRowCount = {{ row_count }};
+      const initialColCount = {{ col_count }};
+      const initialSheetId = {{ sheet_id }};
+      const initialSheets = {{ sheets | tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='js/spreadsheet.js') }}" defer></script>
+  </body>
+</html>
