@@ -18,6 +18,148 @@ const state = {
 
 const keyFor = (row, col) => `${row}:${col}`;
 
+const isFormula = (value) => typeof value === 'string' && value.trim().startsWith('=');
+
+function columnToIndex(label) {
+  let result = 0;
+  const upper = label.toUpperCase();
+  for (let i = 0; i < upper.length; i += 1) {
+    const charCode = upper.charCodeAt(i);
+    if (charCode < 65 || charCode > 90) {
+      return Number.NaN;
+    }
+    result *= 26;
+    result += charCode - 64;
+  }
+  return result - 1;
+}
+
+function getCellEntry(row, col) {
+  return state.cells.get(keyFor(row, col));
+}
+
+function getCellRaw(row, col) {
+  const entry = getCellEntry(row, col);
+  if (!entry) {
+    return '';
+  }
+  return typeof entry.raw === 'string' ? entry.raw : '';
+}
+
+function setCellRaw(row, col, rawValue) {
+  const key = keyFor(row, col);
+  if (rawValue === null || rawValue === undefined || rawValue === '') {
+    state.cells.delete(key);
+    return;
+  }
+  const entry = state.cells.get(key) ?? {};
+  entry.raw = String(rawValue);
+  state.cells.set(key, entry);
+}
+
+function evaluateExpression(expression) {
+  const sanitized = expression.replace(/\s+/g, '');
+  if (!/^[0-9+\-*/().]*$/.test(sanitized)) {
+    throw new Error('Invalid characters in formula');
+  }
+  // eslint-disable-next-line no-new-func
+  const fn = new Function(`"use strict"; return (${expression});`);
+  const result = fn();
+  if (typeof result === 'number' && Number.isFinite(result)) {
+    return String(result);
+  }
+  throw new Error('Invalid formula result');
+}
+
+function evaluateCell(row, col, visiting = new Set()) {
+  const key = keyFor(row, col);
+  const entry = state.cells.get(key);
+  if (!entry) {
+    return '';
+  }
+  const raw = typeof entry.raw === 'string' ? entry.raw.trim() : '';
+  if (!isFormula(raw)) {
+    entry.value = raw;
+    return entry.value;
+  }
+
+  if (visiting.has(key)) {
+    entry.value = '#CYCLE!';
+    return entry.value;
+  }
+
+  visiting.add(key);
+
+  const formulaBody = raw.slice(1);
+  let sawCycle = false;
+  let sawError = false;
+  const replaced = formulaBody.replace(/([A-Za-z]+)(\d+)/g, (match, colLabel, rowNumber) => {
+    const refCol = columnToIndex(colLabel);
+    const refRow = Number.parseInt(rowNumber, 10) - 1;
+    if (Number.isNaN(refCol) || Number.isNaN(refRow)) {
+      sawError = true;
+      return '0';
+    }
+    const refValue = evaluateCell(refRow, refCol, visiting);
+    if (refValue === '#CYCLE!') {
+      sawCycle = true;
+      return '0';
+    }
+    if (refValue === '#ERROR') {
+      sawError = true;
+      return '0';
+    }
+    const numeric = Number.parseFloat(refValue);
+    if (Number.isFinite(numeric)) {
+      return String(numeric);
+    }
+    return '0';
+  });
+
+  if (sawCycle) {
+    entry.value = '#CYCLE!';
+    visiting.delete(key);
+    return entry.value;
+  }
+  if (sawError) {
+    entry.value = '#ERROR';
+    visiting.delete(key);
+    return entry.value;
+  }
+
+  try {
+    entry.value = evaluateExpression(replaced);
+  } catch (error) {
+    entry.value = '#ERROR';
+  }
+
+  visiting.delete(key);
+  return entry.value;
+}
+
+function recalculateAllCells() {
+  const keys = Array.from(state.cells.keys());
+  keys.forEach((key) => {
+    const [rowStr, colStr] = key.split(':');
+    const row = Number.parseInt(rowStr, 10);
+    const col = Number.parseInt(colStr, 10);
+    if (!Number.isNaN(row) && !Number.isNaN(col)) {
+      evaluateCell(row, col, new Set());
+    }
+  });
+}
+
+function getDisplayValue(row, col) {
+  const entry = getCellEntry(row, col);
+  if (!entry) {
+    return '';
+  }
+  if (isFormula(entry.raw)) {
+    return typeof entry.value === 'string' ? entry.value : '';
+  }
+  return typeof entry.raw === 'string' ? entry.raw : '';
+}
+
 function setStatus(message, type = 'info') {
   statusElement.textContent = message;
   statusElement.classList.remove('success', 'error', 'info');
@@ -85,10 +227,14 @@ function renderTable() {
       const cellNode = cellTemplate.content.firstElementChild.cloneNode(true);
       cellNode.dataset.row = row;
       cellNode.dataset.col = col;
-      const key = keyFor(row, col);
-      const value = state.cells.get(key) ?? '';
-      if (value) {
-        cellNode.textContent = value;
+      const entry = getCellEntry(row, col);
+      const displayValue = getDisplayValue(row, col);
+      if (displayValue) {
+        cellNode.textContent = displayValue;
+      }
+      if (entry && isFormula(entry.raw)) {
+        cellNode.dataset.formula = entry.raw;
+        cellNode.classList.add('formula-cell');
       }
       tr.appendChild(cellNode);
     }
@@ -118,11 +264,12 @@ async function loadGrid(sheetId = state.sheetId) {
     state.cells.clear();
     data.cells.forEach((rowValues, rowIndex) => {
       rowValues.forEach((value, colIndex) => {
-        if (value !== null && value !== '') {
-          state.cells.set(keyFor(rowIndex, colIndex), value);
+        if (value !== null && value !== undefined && value !== '') {
+          setCellRaw(rowIndex, colIndex, String(value));
         }
       });
     });
+    recalculateAllCells();
     renderTable();
     populateSheetSelect();
     setStatus('Ready', 'info');
@@ -171,13 +318,14 @@ async function saveChanges({ updates = [], rowCount = null, colCount = null }) {
     });
     invalidKeys.forEach((key) => state.cells.delete(key));
     updates.forEach((item) => {
-      const key = keyFor(item.row, item.col);
-      if (item.value === '') {
-        state.cells.delete(key);
+      const raw = typeof item.value === 'string' ? item.value : '';
+      if (raw === '') {
+        state.cells.delete(keyFor(item.row, item.col));
       } else {
-        state.cells.set(key, item.value);
+        setCellRaw(item.row, item.col, raw);
       }
     });
+    recalculateAllCells();
     renderTable();
     setStatus('All changes saved', 'success');
   } catch (error) {
@@ -193,6 +341,19 @@ sheetElement.addEventListener('input', (event) => {
   event.target.classList.add('modified');
 });
 
+sheetElement.addEventListener('focusin', (event) => {
+  const target = event.target;
+  if (!target.matches('td.cell')) {
+    return;
+  }
+  const row = Number.parseInt(target.dataset.row, 10);
+  const col = Number.parseInt(target.dataset.col, 10);
+  const entry = getCellEntry(row, col);
+  if (entry && isFormula(entry.raw)) {
+    target.textContent = entry.raw;
+  }
+});
+
 sheetElement.addEventListener('focusout', (event) => {
   const target = event.target;
   if (!target.matches('td.cell')) {
@@ -201,6 +362,36 @@ sheetElement.addEventListener('focusout', (event) => {
   const row = Number.parseInt(target.dataset.row, 10);
   const col = Number.parseInt(target.dataset.col, 10);
   const value = target.textContent.trim();
+  const previousRaw = getCellRaw(row, col);
+  if (previousRaw === value) {
+    target.textContent = getDisplayValue(row, col);
+    if (previousRaw !== '' && isFormula(previousRaw)) {
+      target.dataset.formula = previousRaw;
+      target.classList.add('formula-cell');
+    } else {
+      target.removeAttribute('data-formula');
+      target.classList.remove('formula-cell');
+    }
+    target.classList.remove('modified');
+    return;
+  }
+  if (value === '') {
+    state.cells.delete(keyFor(row, col));
+  } else {
+    setCellRaw(row, col, value);
+  }
+  recalculateAllCells();
+  const displayValue = getDisplayValue(row, col);
+  if (displayValue !== value) {
+    target.textContent = displayValue;
+  }
+  if (value !== '' && isFormula(value)) {
+    target.dataset.formula = value;
+    target.classList.add('formula-cell');
+  } else {
+    target.removeAttribute('data-formula');
+    target.classList.remove('formula-cell');
+  }
   target.classList.remove('modified');
   saveChanges({
     updates: [
@@ -294,15 +485,13 @@ renameButton.addEventListener('click', async () => {
 });
 
 function collectSheetSnapshot() {
-  const updates = [];
-  const cells = sheetElement.querySelectorAll('td.cell');
-  cells.forEach((cell) => {
-    const row = Number.parseInt(cell.dataset.row, 10);
-    const col = Number.parseInt(cell.dataset.col, 10);
-    const value = cell.textContent.trim();
-    updates.push({ row, col, value });
-  });
-  return updates;
+  const snapshot = [];
+  for (let row = 0; row < state.rowCount; row += 1) {
+    for (let col = 0; col < state.colCount; col += 1) {
+      snapshot.push({ row, col, value: getCellRaw(row, col) });
+    }
+  }
+  return snapshot;
 }
 
 saveSheetButton.addEventListener('click', async () => {
