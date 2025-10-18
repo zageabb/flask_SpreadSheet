@@ -197,6 +197,10 @@ body {
   white-space: pre-wrap;
 }
 
+.formula-cell:not(:focus) {
+  background-image: linear-gradient(135deg, rgba(13, 110, 253, 0.08), rgba(13, 110, 253, 0.02));
+}
+
 .cell:focus {
   background: rgba(13, 110, 253, 0.14);
 }
