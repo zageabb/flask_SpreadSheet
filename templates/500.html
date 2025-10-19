@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Server Error</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
+  </head>
+  <body class="error-page">
+    <main>
+      <h1>500 &middot; Server Error</h1>
+      <p>An unexpected error occurred. Please try again later.</p>
+      <a href="{{ url_for('main.index') }}" class="action-btn">Return to the spreadsheet</a>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Bad Request</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
+  </head>
+  <body class="error-page">
+    <main>
+      <h1>400 &middot; Bad Request</h1>
+      <p>{{ error.description if error else 'The server could not understand your request.' }}</p>
+      <a href="{{ url_for('main.index') }}" class="action-btn">Return to the spreadsheet</a>
+    </main>
+  </body>
+</html>
