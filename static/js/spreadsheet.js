@@ -354,10 +354,12 @@ function handleCellValueChanged(params) {
 async function loadGrid(sheetId = state.sheetId) {
   try {
     setStatus('Loading…', 'info');
-    const url = new URL('/api/grid', window.location.origin);
+    const url = new URL('/data', window.location.origin);
     if (typeof sheetId === 'number' && !Number.isNaN(sheetId)) {
       url.searchParams.set('sheetId', sheetId);
     }
+    url.searchParams.set('page', '1');
+    url.searchParams.set('pageSize', '0');
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error('Failed to load grid');
@@ -366,14 +368,18 @@ async function loadGrid(sheetId = state.sheetId) {
     state.sheetId = data.sheetId;
     state.rowCount = data.rowCount;
     state.colCount = data.colCount;
-    state.sheets = Array.isArray(data.sheets) ? data.sheets : state.sheets;
+    if (Array.isArray(data.sheets)) {
+      state.sheets = data.sheets;
+    }
     state.cells.clear();
-    if (Array.isArray(data.cells)) {
-      data.cells.forEach((rowValues, rowIndex) => {
-        if (!Array.isArray(rowValues)) {
+    if (Array.isArray(data.rows)) {
+      data.rows.forEach((row) => {
+        const rowIndex = Number.parseInt(row.rowIndex ?? row.rowindex ?? row.row_index, 10);
+        if (!Number.isInteger(rowIndex) || rowIndex < 0) {
           return;
         }
-        rowValues.forEach((value, colIndex) => {
+        const values = Array.isArray(row.values) ? row.values : [];
+        values.forEach((value, colIndex) => {
           if (value !== null && value !== undefined && value !== '') {
             setCellRaw(rowIndex, colIndex, String(value));
           }
@@ -407,8 +413,9 @@ async function saveChanges({ updates = [], rowCount = null, colCount = null }) {
     if (typeof colCount === 'number') {
       payload.colCount = colCount;
     }
-    const response = await fetch('/api/grid', {
-      method: 'POST',
+    const method = rowCount !== null || colCount !== null ? 'POST' : 'PATCH';
+    const response = await fetch('/data', {
+      method,
       headers: {
         'Content-Type': 'application/json',
       },

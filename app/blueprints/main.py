@@ -1,8 +1,10 @@
+import json
 import sqlite3
 from flask import Blueprint, abort, jsonify, render_template, request
+from pydantic import ValidationError
 
-from ..services.database import get_db
 from ..services import sheets as sheet_service
+from .. import schemas
 
 
 main_bp = Blueprint("main", __name__)
@@ -43,22 +45,14 @@ def get_grid():
 @main_bp.route("/api/grid", methods=["POST"])
 def save_grid():
     payload = request.get_json(silent=True) or {}
-    updates = payload.get("updates", [])
-    new_row_count = payload.get("rowCount")
-    new_col_count = payload.get("colCount")
-    sheet_id = payload.get("sheetId")
-    if not isinstance(sheet_id, int):
-        abort(400, description="sheetId is required")
+    try:
+        request_model = schemas.DataWriteRequest.model_validate(payload)
+    except ValidationError as exc:
+        abort(400, description=str(exc))
 
-    db = get_db()
-    sheet = db.execute("SELECT id FROM sheets WHERE id = ?", (sheet_id,)).fetchone()
-    if sheet is None:
-        abort(404, description="Sheet not found")
-    sheet_service.update_dimensions(sheet_id, new_row_count, new_col_count)
-    sheet_service.apply_updates(sheet_id, updates)
-
-    sheet_id, _, row_count, col_count, _ = sheet_service.fetch_sheet(sheet_id)
-    return jsonify({"sheetId": sheet_id, "rowCount": row_count, "colCount": col_count}), 200
+    result = sheet_service.write_sheet_data(request_model)
+    response_model = schemas.DataWriteResponse.model_validate(result)
+    return jsonify(response_model.model_dump(by_alias=True)), 200
 
 
 @main_bp.route("/api/sheets", methods=["GET"])
@@ -116,3 +110,61 @@ def rename_sheet(sheet_id: int):
         abort(409, description="A sheet with that name already exists")
 
     return jsonify({"sheets": sheet_service.list_sheets(), "sheetId": sheet_id, "name": name}), 200
+
+
+def _parse_query_filters(raw_filters: str | None):
+    if not raw_filters:
+        return None
+    try:
+        parsed = json.loads(raw_filters)
+    except json.JSONDecodeError as exc:
+        abort(400, description=f"Invalid filters payload: {exc.msg}")
+    return parsed
+
+
+def _handle_data_write(payload: dict[str, object]):
+    try:
+        request_model = schemas.DataWriteRequest.model_validate(payload)
+    except ValidationError as exc:
+        abort(400, description=str(exc))
+
+    result = sheet_service.write_sheet_data(request_model)
+    response_model = schemas.DataWriteResponse.model_validate(result)
+    return jsonify(response_model.model_dump(by_alias=True)), 200
+
+
+@main_bp.route("/data", methods=["GET"])
+def get_data():
+    raw_filters = request.args.get("filters")
+    filters = _parse_query_filters(raw_filters)
+    payload = {
+        "sheetId": request.args.get("sheetId"),
+        "page": request.args.get("page"),
+        "pageSize": request.args.get("pageSize"),
+        "sortColumn": request.args.get("sortColumn"),
+    }
+    sort_dir = request.args.get("sortDir")
+    if sort_dir is not None:
+        payload["sortDir"] = sort_dir
+    if filters is not None:
+        payload["filters"] = filters
+    try:
+        params = schemas.DataQueryParams.model_validate(payload)
+    except ValidationError as exc:
+        abort(400, description=str(exc))
+
+    result = sheet_service.query_sheet_data(params)
+    response_model = schemas.DataResponse.model_validate(result)
+    return jsonify(response_model.model_dump(by_alias=True))
+
+
+@main_bp.route("/data", methods=["POST"])
+def post_data():
+    payload = request.get_json(silent=True) or {}
+    return _handle_data_write(payload)
+
+
+@main_bp.route("/data", methods=["PATCH"])
+def patch_data():
+    payload = request.get_json(silent=True) or {}
+    return _handle_data_write(payload)
