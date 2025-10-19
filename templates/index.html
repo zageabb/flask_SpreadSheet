@@ -94,6 +94,7 @@
       const initialSheets = {{ sheets | tojson }};
     </script>
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@31.2.1/dist/ag-grid-community.min.noStyle.js" defer></script>
+    <script src="{{ url_for('static', filename='js/formula_engine.js') }}" defer></script>
     <script src="{{ url_for('static', filename='js/spreadsheet.js') }}" defer></script>
   </body>
 </html>
