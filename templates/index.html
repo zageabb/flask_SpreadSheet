@@ -24,6 +24,9 @@
         <button id="add-row" type="button" class="action-btn">Add Row</button>
         <button id="add-column" type="button" class="action-btn">Add Column</button>
         <button id="reset-grid" type="button" class="action-btn secondary">Clear Sheet</button>
+        <button id="import-data" type="button" class="action-btn">Import Data</button>
+        <a id="download-csv" class="action-btn secondary" href="#" role="button">Export CSV</a>
+        <a id="download-xlsx" class="action-btn secondary" href="#" role="button">Export XLSX</a>
       </div>
     </header>
 
@@ -35,6 +38,41 @@
         <div id="status" role="status" aria-live="polite" class="status">Ready</div>
       </section>
     </main>
+
+    <div id="import-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
+      <div class="modal-dialog">
+        <button type="button" class="modal-close" id="close-import-modal" aria-label="Close import dialog">&times;</button>
+        <h2 id="import-modal-title">Import Data</h2>
+        <p class="modal-description">Upload a CSV or Excel (.xlsx) file to preview its contents before importing.</p>
+        <form id="import-form" class="modal-form" enctype="multipart/form-data">
+          <label class="form-field" for="import-file">Choose file</label>
+          <input id="import-file" name="file" type="file" accept=".csv,.xlsx" required />
+          <label class="checkbox-field">
+            <input id="import-include-header" name="includeHeader" type="checkbox" checked />
+            <span>Treat the first row as a header row</span>
+          </label>
+          <div class="modal-actions">
+            <button type="submit" class="action-btn">Upload</button>
+            <button type="button" class="action-btn secondary" id="import-cancel">Cancel</button>
+          </div>
+        </form>
+        <div id="import-feedback" class="import-feedback" role="alert"></div>
+        <div id="import-preview" class="import-preview hidden" aria-live="polite">
+          <div class="import-preview-header">
+            <h3>Preview</h3>
+            <p id="import-preview-meta" class="preview-meta"></p>
+            <p id="import-source-name" class="preview-source"></p>
+          </div>
+          <div class="preview-table-wrapper">
+            <table id="import-preview-table" class="preview-table"></table>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="action-btn" id="confirm-import">Confirm Import</button>
+            <button type="button" class="action-btn secondary" id="reset-import">Choose Another File</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <script>
       const initialRowCount = {{ row_count }};

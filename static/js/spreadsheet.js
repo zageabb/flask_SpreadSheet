@@ -6,6 +6,22 @@ const resetButton = document.getElementById('reset-grid');
 const renameButton = document.getElementById('rename-sheet');
 const saveSheetButton = document.getElementById('save-sheet');
 const sheetSelect = document.getElementById('sheet-select');
+const importButton = document.getElementById('import-data');
+const importModal = document.getElementById('import-modal');
+const importForm = document.getElementById('import-form');
+const importFileInput = document.getElementById('import-file');
+const importIncludeHeaderInput = document.getElementById('import-include-header');
+const importCancelButton = document.getElementById('import-cancel');
+const importCloseButton = document.getElementById('close-import-modal');
+const importPreviewContainer = document.getElementById('import-preview');
+const importPreviewTable = document.getElementById('import-preview-table');
+const importPreviewMeta = document.getElementById('import-preview-meta');
+const importSourceName = document.getElementById('import-source-name');
+const importFeedback = document.getElementById('import-feedback');
+const importConfirmButton = document.getElementById('confirm-import');
+const importResetButton = document.getElementById('reset-import');
+const exportCsvLink = document.getElementById('download-csv');
+const exportXlsxLink = document.getElementById('download-xlsx');
 
 const state = {
   sheetId: initialSheetId,
@@ -15,6 +31,12 @@ const state = {
   sheets: Array.isArray(initialSheets) ? initialSheets : [],
   rowData: [],
 };
+
+let pendingImport = null;
+
+if (importConfirmButton) {
+  importConfirmButton.disabled = true;
+}
 
 function keyFor(row, col) {
   return `${row}:${col}`;
@@ -182,6 +204,184 @@ function setStatus(message, type = 'info') {
   statusElement.textContent = message;
   statusElement.classList.remove('success', 'error', 'info');
   statusElement.classList.add(type);
+}
+
+async function extractErrorMessage(response) {
+  try {
+    const data = await response.json();
+    if (data && typeof data.message === 'string') {
+      return data.message;
+    }
+    if (data && typeof data.error === 'string') {
+      return data.error;
+    }
+  } catch (error) {
+    // Ignore JSON parsing errors; fall back to text below.
+  }
+  try {
+    const text = await response.text();
+    if (text) {
+      return text;
+    }
+  } catch (error) {
+    // Ignore text parsing errors.
+  }
+  return 'Request failed';
+}
+
+function updateExportLinks() {
+  const sheetId = Number.isInteger(state.sheetId) ? state.sheetId : null;
+  if (exportCsvLink) {
+    const csvUrl = new URL('/export.csv', window.location.origin);
+    if (sheetId !== null) {
+      csvUrl.searchParams.set('sheetId', String(sheetId));
+    }
+    exportCsvLink.href = csvUrl.toString();
+  }
+  if (exportXlsxLink) {
+    const xlsxUrl = new URL('/export.xlsx', window.location.origin);
+    if (sheetId !== null) {
+      xlsxUrl.searchParams.set('sheetId', String(sheetId));
+    }
+    exportXlsxLink.href = xlsxUrl.toString();
+  }
+}
+
+function setImportFeedback(message, type = 'info') {
+  if (!importFeedback) {
+    return;
+  }
+  importFeedback.textContent = message || '';
+  importFeedback.className = 'import-feedback';
+  if (type === 'error') {
+    importFeedback.classList.add('error');
+  } else if (type === 'success') {
+    importFeedback.classList.add('success');
+  }
+}
+
+function resetImportModal(clearForm = true) {
+  if (clearForm && importForm) {
+    importForm.reset();
+    if (importFileInput) {
+      importFileInput.value = '';
+    }
+    if (importIncludeHeaderInput) {
+      importIncludeHeaderInput.checked = true;
+    }
+  }
+  if (importPreviewContainer) {
+    importPreviewContainer.classList.add('hidden');
+  }
+  if (importPreviewTable) {
+    importPreviewTable.innerHTML = '';
+  }
+  if (importPreviewMeta) {
+    importPreviewMeta.textContent = '';
+  }
+  if (importSourceName) {
+    importSourceName.textContent = '';
+  }
+  setImportFeedback('');
+  pendingImport = null;
+  if (importConfirmButton) {
+    importConfirmButton.disabled = true;
+  }
+}
+
+function openImportModal() {
+  if (!importModal) {
+    return;
+  }
+  resetImportModal();
+  importModal.classList.remove('hidden');
+  if (importFileInput) {
+    importFileInput.focus();
+  }
+}
+
+function closeImportModal() {
+  if (!importModal) {
+    return;
+  }
+  resetImportModal();
+  importModal.classList.add('hidden');
+}
+
+function renderImportPreview(preview) {
+  if (!importPreviewContainer || !importPreviewTable) {
+    return;
+  }
+
+  importPreviewTable.innerHTML = '';
+
+  const headerRow = Array.isArray(preview?.headerRow) ? preview.headerRow : [];
+  const columns = Array.isArray(preview?.columns) ? preview.columns : [];
+  const rows = Array.isArray(preview?.previewRows) ? preview.previewRows : [];
+
+  let headerValues = headerRow.length ? headerRow : columns;
+  const fallbackColumnCount = headerValues.length
+    || (Array.isArray(rows[0]) ? rows[0].length : Number.parseInt(preview?.totalColumns, 10))
+    || 0;
+  if (!headerValues.length && fallbackColumnCount > 0) {
+    headerValues = Array.from({ length: fallbackColumnCount }, (_, index) => columnLabel(index));
+  }
+
+  if (headerValues.length) {
+    const thead = document.createElement('thead');
+    const headerTr = document.createElement('tr');
+    headerValues.forEach((value) => {
+      const th = document.createElement('th');
+      th.textContent = value ?? '';
+      headerTr.appendChild(th);
+    });
+    thead.appendChild(headerTr);
+    importPreviewTable.appendChild(thead);
+  }
+
+  const tbody = document.createElement('tbody');
+  rows.forEach((row) => {
+    const tr = document.createElement('tr');
+    const cells = Array.isArray(row) ? row : [];
+    const cellCount = headerValues.length || cells.length;
+    for (let index = 0; index < cellCount; index += 1) {
+      const td = document.createElement('td');
+      td.textContent = cells[index] ?? '';
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  });
+  importPreviewTable.appendChild(tbody);
+
+  if (importPreviewMeta) {
+    let totalRows = Number.parseInt(preview?.totalRows, 10);
+    if (Number.isNaN(totalRows)) {
+      totalRows = rows.length;
+    }
+    let totalColumns = Number.parseInt(preview?.totalColumns, 10);
+    if (Number.isNaN(totalColumns)) {
+      totalColumns = headerValues.length || (rows[0] ? rows[0].length : 0);
+    }
+    const displayedRows = rows.length;
+    const truncated = Boolean(preview?.truncated) && displayedRows < totalRows;
+    if (totalRows === 0 && headerRow.length) {
+      importPreviewMeta.textContent = `Preview contains only a header row (${headerRow.length} columns).`;
+    } else if (truncated) {
+      importPreviewMeta.textContent = `Showing first ${displayedRows} of ${totalRows} rows (${totalColumns} columns).`;
+    } else {
+      importPreviewMeta.textContent = `Detected ${totalRows} row${totalRows === 1 ? '' : 's'} and ${totalColumns} column${totalColumns === 1 ? '' : 's'}.`;
+    }
+  }
+
+  if (importSourceName) {
+    const name = typeof preview?.sourceName === 'string' ? preview.sourceName : '';
+    importSourceName.textContent = name ? `File: ${name}` : '';
+  }
+
+  importPreviewContainer.classList.remove('hidden');
+  if (importConfirmButton) {
+    importConfirmButton.disabled = false;
+  }
 }
 
 function populateSheetSelect() {
@@ -390,6 +590,7 @@ async function loadGrid(sheetId = state.sheetId) {
     rebuildRowData();
     updateGridStructure();
     populateSheetSelect();
+    updateExportLinks();
     setStatus('Ready', 'info');
   } catch (error) {
     console.error(error);
@@ -497,6 +698,149 @@ if (resetButton) {
     saveChanges({ updates, rowCount: state.rowCount, colCount: state.colCount });
   });
 }
+
+if (importButton) {
+  importButton.addEventListener('click', () => {
+    if (!Number.isInteger(state.sheetId)) {
+      setStatus('Select a sheet before importing.', 'error');
+      return;
+    }
+    openImportModal();
+  });
+}
+
+if (importCancelButton) {
+  importCancelButton.addEventListener('click', () => {
+    closeImportModal();
+  });
+}
+
+if (importCloseButton) {
+  importCloseButton.addEventListener('click', () => {
+    closeImportModal();
+  });
+}
+
+if (importResetButton) {
+  importResetButton.addEventListener('click', () => {
+    resetImportModal();
+  });
+}
+
+if (importModal) {
+  importModal.addEventListener('click', (event) => {
+    if (event.target === importModal) {
+      closeImportModal();
+    }
+  });
+}
+
+if (importForm) {
+  importForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!Number.isInteger(state.sheetId)) {
+      setImportFeedback('Select a sheet before importing.', 'error');
+      return;
+    }
+    if (!importFileInput || importFileInput.files.length === 0) {
+      setImportFeedback('Select a CSV or XLSX file to upload.', 'error');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', importFileInput.files[0]);
+    formData.append('sheetId', String(state.sheetId));
+    const includeHeader = importIncludeHeaderInput ? importIncludeHeaderInput.checked : true;
+    formData.append('includeHeader', includeHeader ? 'true' : 'false');
+
+    try {
+      setStatus('Processing import…', 'info');
+      setImportFeedback('Uploading file…');
+      if (importConfirmButton) {
+        importConfirmButton.disabled = true;
+      }
+      const response = await fetch('/import', {
+        method: 'POST',
+        body: formData,
+      });
+      if (!response.ok) {
+        const message = await extractErrorMessage(response);
+        setImportFeedback(message, 'error');
+        setStatus('Unable to prepare import', 'error');
+        return;
+      }
+      const result = await response.json();
+      if (!result || typeof result.previewId !== 'string') {
+        setImportFeedback('Unexpected response from the server.', 'error');
+        setStatus('Unable to prepare import', 'error');
+        return;
+      }
+      const previewSheetId = Number.parseInt(result.sheetId, 10);
+      pendingImport = {
+        previewId: result.previewId,
+        sheetId: Number.isNaN(previewSheetId) ? state.sheetId : previewSheetId,
+      };
+      renderImportPreview(result);
+      setImportFeedback('Preview ready. Review the data before confirming.', 'success');
+      setStatus('Import preview ready', 'info');
+    } catch (error) {
+      console.error(error);
+      setImportFeedback('Unable to upload file.', 'error');
+      setStatus('Unable to upload file', 'error');
+    }
+  });
+}
+
+if (importConfirmButton) {
+  importConfirmButton.addEventListener('click', async () => {
+    if (!pendingImport || typeof pendingImport.previewId !== 'string') {
+      setImportFeedback('Upload a file before confirming the import.', 'error');
+      return;
+    }
+    if (pendingImport.sheetId !== state.sheetId) {
+      setImportFeedback('The preview was created for a different sheet. Upload the file again.', 'error');
+      return;
+    }
+    try {
+      importConfirmButton.disabled = true;
+      setImportFeedback('Importing data…');
+      setStatus('Importing data…', 'info');
+      const response = await fetch('/import/confirm', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sheetId: state.sheetId,
+          previewId: pendingImport.previewId,
+        }),
+      });
+      if (!response.ok) {
+        const message = await extractErrorMessage(response);
+        setImportFeedback(message, 'error');
+        setStatus('Import failed', 'error');
+        importConfirmButton.disabled = false;
+        return;
+      }
+      await response.json();
+      setImportFeedback('Import complete.', 'success');
+      setStatus('Import complete', 'success');
+      closeImportModal();
+      await loadGrid(state.sheetId);
+    } catch (error) {
+      console.error(error);
+      setImportFeedback('Import failed.', 'error');
+      setStatus('Import failed', 'error');
+      importConfirmButton.disabled = false;
+    }
+  });
+}
+
+window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && importModal && !importModal.classList.contains('hidden')) {
+    closeImportModal();
+  }
+});
 
 if (sheetSelect) {
   sheetSelect.addEventListener('change', (event) => {
@@ -631,5 +975,6 @@ function initializeGrid() {
 window.addEventListener('load', () => {
   initializeGrid();
   populateSheetSelect();
+  updateExportLinks();
   loadGrid();
 });
