@@ -1,4 +1,6 @@
+import hmac
 import os
+import secrets
 import sqlite3
 from datetime import datetime
 from flask import Flask, jsonify, render_template, request, g, abort
@@ -6,6 +8,16 @@ from flask import Flask, jsonify, render_template, request, g, abort
 
 def create_app():
     app = Flask(__name__)
+    app.config.setdefault("SECRET_KEY", os.environ.get("SECRET_KEY", "dev-secret-key"))
+    app.config.update(
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SECURE=os.environ.get("PREFERRED_URL_SCHEME", "https") == "https",
+    )
+
+    CSRF_COOKIE_NAME = "spreadsheet_csrftoken"
+    CSRF_HEADER_NAME = "X-CSRFToken"
+    SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
 
     db_path = os.path.join(app.instance_path, "spreadsheet.db")
     os.makedirs(app.instance_path, exist_ok=True)
@@ -100,13 +112,38 @@ def create_app():
                     ("Sheet 1", 12, 8, now, now),
                 )
 
+    def _ensure_csrf_token():
+        token = request.cookies.get(CSRF_COOKIE_NAME)
+        if not token:
+            token = secrets.token_urlsafe(32)
+        g.csrf_token = token
+        return token
+
     @app.before_request
     def before_request():
         init_db()
+        token = _ensure_csrf_token()
+        if request.method not in SAFE_METHODS:
+            header_token = request.headers.get(CSRF_HEADER_NAME)
+            if not header_token or not hmac.compare_digest(token, header_token):
+                abort(400, description="Invalid CSRF token")
 
     @app.teardown_appcontext
     def teardown_db(exception):
         close_db()
+
+    @app.after_request
+    def after_request(response):
+        token = getattr(g, "csrf_token", None)
+        if token:
+            response.set_cookie(
+                CSRF_COOKIE_NAME,
+                token,
+                secure=app.config.get("SESSION_COOKIE_SECURE", False),
+                samesite="Lax",
+                httponly=False,
+            )
+        return response
 
     def fetch_sheet(sheet_id=None):
         db = get_db()
