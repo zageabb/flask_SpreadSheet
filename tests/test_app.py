@@ -1,46 +1,4 @@
 import json
-from pathlib import Path
-import sys
-from types import SimpleNamespace
-from uuid import uuid4
-
-import pytest
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-try:  # pragma: no cover - guard for optional dependency
-    import dotenv  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover
-    sys.modules["dotenv"] = SimpleNamespace(load_dotenv=lambda *args, **kwargs: None)
-
-from app import create_app
-
-
-@pytest.fixture()
-def app(monkeypatch):
-    database_name = f"test_{uuid4().hex}.db"
-    monkeypatch.setenv("DATABASE_NAME", database_name)
-    monkeypatch.setenv("LOGGING_CONFIG", "")
-
-    app = create_app("development")
-    app.config.update(TESTING=True)
-
-    templates_path = PROJECT_ROOT / "templates"
-    if app.jinja_loader and str(templates_path) not in app.jinja_loader.searchpath:
-        app.jinja_loader.searchpath.insert(0, str(templates_path))
-
-    yield app
-
-    db_path = Path(app.config["DATABASE_PATH"])
-    if db_path.exists():
-        db_path.unlink()
-
-
-@pytest.fixture()
-def client(app):
-    return app.test_client()
 
 
 def test_index_page_renders_initial_sheet(client):
@@ -108,11 +66,15 @@ def test_data_endpoint_supports_paging_and_filters(client):
         "/data",
         json={
             "sheetId": sheet_id,
+            "rowCount": 3,
+            "colCount": 3,
             "updates": [
                 {"row": 0, "col": 0, "value": "Alice"},
                 {"row": 0, "col": 1, "value": 100},
                 {"row": 1, "col": 0, "value": "Bob"},
                 {"row": 1, "col": 1, "value": 250},
+                {"row": 2, "col": 0, "value": "Charlie"},
+                {"row": 2, "col": 1, "value": 175},
             ],
         },
     )
@@ -121,14 +83,37 @@ def test_data_endpoint_supports_paging_and_filters(client):
 
     page_one = client.get(
         "/data",
-        query_string={"sheetId": sheet_id, "page": 1, "pageSize": 1, "sortColumn": 1, "sortDir": "desc"},
+        query_string={
+            "sheetId": sheet_id,
+            "page": 1,
+            "pageSize": 2,
+            "sortColumn": 1,
+            "sortDir": "desc",
+        },
     ).get_json()
 
-    assert page_one["totalRows"] >= 2
-    assert len(page_one["rows"]) == 1
+    assert page_one["totalRows"] == 3
+    assert len(page_one["rows"]) == 2
     assert page_one["rows"][0]["rowIndex"] == 1
+    assert page_one["rows"][0]["values"][0] == "Bob"
+    assert page_one["rows"][1]["rowIndex"] == 2
 
-    filters = json.dumps([{ "column": 1, "operator": "gt", "value": 150 }])
+    page_two = client.get(
+        "/data",
+        query_string={
+            "sheetId": sheet_id,
+            "page": 2,
+            "pageSize": 2,
+            "sortColumn": 1,
+            "sortDir": "desc",
+        },
+    ).get_json()
+
+    assert page_two["totalRows"] == 3
+    assert len(page_two["rows"]) == 1
+    assert page_two["rows"][0]["rowIndex"] == 0
+
+    filters = json.dumps([{ "column": 1, "operator": "gt", "value": 200 }])
     filtered = client.get(
         "/data",
         query_string={"sheetId": sheet_id, "page": 1, "pageSize": 0, "filters": filters},
@@ -136,6 +121,60 @@ def test_data_endpoint_supports_paging_and_filters(client):
 
     assert filtered["totalRows"] == 1
     assert filtered["rows"][0]["rowIndex"] == 1
+
+
+def test_data_endpoint_returns_validation_errors(client):
+    response = client.get(
+        "/data",
+        query_string={"page": 0},
+        headers={"Accept": "application/json"},
+    )
+
+    assert response.status_code == 400
+    payload = response.get_json()
+    assert payload["error"] == "bad_request"
+    assert "page" in payload["message"]
+
+    filters_response = client.get(
+        "/data",
+        query_string={"filters": "not-json"},
+        headers={"Accept": "application/json"},
+    )
+
+    assert filters_response.status_code == 400
+    filters_payload = filters_response.get_json()
+    assert "filters" in filters_payload["message"].lower()
+
+
+def test_formula_cells_roundtrip_via_grid_and_data(client):
+    sheet_id = client.get("/api/grid").get_json()["sheetId"]
+
+    patch_response = client.patch(
+        "/data",
+        json={
+            "sheetId": sheet_id,
+            "updates": [
+                {"row": 0, "col": 0, "value": "=B1+C1"},
+                {"row": 0, "col": 1, "value": 5},
+                {"row": 0, "col": 2, "value": 7},
+            ],
+        },
+    )
+
+    assert patch_response.status_code == 200
+
+    grid = client.get("/api/grid", query_string={"sheetId": sheet_id}).get_json()
+    assert grid["cells"][0][0] == "=B1+C1"
+    assert grid["cells"][0][1] == "5"
+    assert grid["cells"][0][2] == "7"
+
+    data_page = client.get(
+        "/data",
+        query_string={"sheetId": sheet_id, "page": 1, "pageSize": 1},
+    ).get_json()
+
+    assert data_page["rows"][0]["values"][0] == "=B1+C1"
+    assert data_page["rows"][0]["values"][1] == "5"
 
 
 def test_numeric_validation_enforced(client):
