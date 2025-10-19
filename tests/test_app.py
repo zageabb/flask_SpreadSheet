@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import sys
 from types import SimpleNamespace
@@ -98,3 +99,51 @@ def test_update_grid_applies_changes(client):
     assert initial_grid["cells"][0][0] == ""
     assert refreshed["cells"][0][0] == "Hello"
     assert refreshed["cells"][2][1] == "42"
+
+
+def test_data_endpoint_supports_paging_and_filters(client):
+    sheet_id = client.get("/api/grid").get_json()["sheetId"]
+
+    patch_response = client.patch(
+        "/data",
+        json={
+            "sheetId": sheet_id,
+            "updates": [
+                {"row": 0, "col": 0, "value": "Alice"},
+                {"row": 0, "col": 1, "value": 100},
+                {"row": 1, "col": 0, "value": "Bob"},
+                {"row": 1, "col": 1, "value": 250},
+            ],
+        },
+    )
+
+    assert patch_response.status_code == 200
+
+    page_one = client.get(
+        "/data",
+        query_string={"sheetId": sheet_id, "page": 1, "pageSize": 1, "sortColumn": 1, "sortDir": "desc"},
+    ).get_json()
+
+    assert page_one["totalRows"] >= 2
+    assert len(page_one["rows"]) == 1
+    assert page_one["rows"][0]["rowIndex"] == 1
+
+    filters = json.dumps([{ "column": 1, "operator": "gt", "value": 150 }])
+    filtered = client.get(
+        "/data",
+        query_string={"sheetId": sheet_id, "page": 1, "pageSize": 0, "filters": filters},
+    ).get_json()
+
+    assert filtered["totalRows"] == 1
+    assert filtered["rows"][0]["rowIndex"] == 1
+
+
+def test_numeric_validation_enforced(client):
+    sheet_id = client.get("/api/grid").get_json()["sheetId"]
+
+    invalid = client.patch(
+        "/data",
+        json={"sheetId": sheet_id, "updates": [{"row": 0, "col": 1, "value": "not-a-number"}]},
+    )
+
+    assert invalid.status_code == 400
