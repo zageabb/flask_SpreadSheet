@@ -136,7 +136,7 @@ body {
   border: 1px solid var(--border-color);
   border-radius: 0.75rem;
   background: var(--sheet-bg);
-  overflow: auto;
+  overflow: hidden;
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
 }
 
@@ -148,65 +148,55 @@ body {
 }
 
 #sheet {
-  border-collapse: separate;
-  border-spacing: 0;
-  min-width: 720px;
-  width: max(720px, 100%);
+  width: 100%;
+  height: clamp(360px, 70vh, 960px);
 }
 
-#sheet th,
-#sheet td {
-  border: 1px solid var(--border-color);
-  min-width: 90px;
-  padding: 0.45rem 0.5rem;
-  text-align: left;
-  font-size: 0.95rem;
-  line-height: 1.4;
-  background: transparent;
-  transition: background 120ms ease;
+.ag-theme-quartz {
+  --ag-foreground-color: var(--text-color);
+  --ag-background-color: var(--sheet-bg);
+  --ag-header-background-color: rgba(13, 110, 253, 0.12);
+  --ag-header-foreground-color: #0f172a;
+  --ag-border-color: var(--border-color);
+  --ag-header-column-resize-handle-display: block;
+  --ag-font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
-  #sheet th,
-  #sheet td {
-    border-color: var(--border-dark);
+  .ag-theme-quartz {
+    --ag-foreground-color: var(--text-color-dark);
+    --ag-background-color: var(--sheet-bg-dark);
+    --ag-header-background-color: rgba(88, 157, 246, 0.22);
+    --ag-header-foreground-color: #e2e8f0;
+    --ag-border-color: var(--border-dark);
   }
 }
 
-#sheet th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: rgba(13, 110, 253, 0.12);
+.ag-theme-quartz .ag-header {
   font-weight: 600;
 }
 
-#sheet tr th:first-child {
-  left: 0;
-  z-index: 3;
-}
-
-#sheet tbody tr th {
+.ag-theme-quartz .ag-row-number-cell,
+.ag-theme-quartz .row-number-cell {
+  font-weight: 600;
+  color: #0f172a;
   background: rgba(148, 163, 184, 0.2);
-  text-align: center;
-  font-weight: 600;
 }
 
-.cell {
-  outline: none;
-  white-space: pre-wrap;
+@media (prefers-color-scheme: dark) {
+  .ag-theme-quartz .ag-row-number-cell,
+  .ag-theme-quartz .row-number-cell {
+    color: #e2e8f0;
+    background: rgba(148, 163, 184, 0.22);
+  }
 }
 
-.formula-cell:not(:focus) {
+.ag-theme-quartz .formula-cell {
   background-image: linear-gradient(135deg, rgba(13, 110, 253, 0.08), rgba(13, 110, 253, 0.02));
 }
 
-.cell:focus {
-  background: rgba(13, 110, 253, 0.14);
-}
-
-.cell.modified {
-  background: rgba(34, 197, 94, 0.2);
+.ag-theme-quartz .ag-cell-focus {
+  box-shadow: inset 0 0 0 2px rgba(13, 110, 253, 0.35);
 }
 
 .status {
@@ -254,12 +244,7 @@ body {
 @media (max-width: 768px) {
   #sheet {
     min-width: unset;
-    width: 100%;
-  }
-
-  #sheet th,
-  #sheet td {
-    min-width: 72px;
+    height: clamp(280px, 60vh, 720px);
   }
 }
 

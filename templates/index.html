@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Flask Spreadsheet</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.2.1/styles/ag-grid.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.2.1/styles/ag-theme-quartz.css" />
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
   </head>
   <body>
@@ -28,15 +30,11 @@
     <main class="app-main">
       <section class="sheet-container">
         <div class="sheet-wrapper">
-          <table id="sheet" aria-label="Spreadsheet"></table>
+          <div id="sheet" class="ag-theme-quartz" aria-label="Spreadsheet"></div>
         </div>
         <div id="status" role="status" aria-live="polite" class="status">Ready</div>
       </section>
     </main>
-
-    <template id="cell-template">
-      <td contenteditable="true" spellcheck="false" class="cell"></td>
-    </template>
 
     <script>
       const initialRowCount = {{ row_count }};
@@ -44,6 +42,7 @@
       const initialSheetId = {{ sheet_id }};
       const initialSheets = {{ sheets | tojson }};
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@31.2.1/dist/ag-grid-community.min.noStyle.js" defer></script>
     <script src="{{ url_for('static', filename='js/spreadsheet.js') }}" defer></script>
   </body>
 </html>

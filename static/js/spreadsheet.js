@@ -1,4 +1,4 @@
-const sheetElement = document.getElementById('sheet');
+const gridContainer = document.getElementById('sheet');
 const statusElement = document.getElementById('status');
 const addRowButton = document.getElementById('add-row');
 const addColumnButton = document.getElementById('add-column');
@@ -6,7 +6,6 @@ const resetButton = document.getElementById('reset-grid');
 const renameButton = document.getElementById('rename-sheet');
 const saveSheetButton = document.getElementById('save-sheet');
 const sheetSelect = document.getElementById('sheet-select');
-const cellTemplate = document.getElementById('cell-template');
 
 const state = {
   sheetId: initialSheetId,
@@ -14,15 +13,20 @@ const state = {
   colCount: initialColCount,
   cells: new Map(),
   sheets: Array.isArray(initialSheets) ? initialSheets : [],
+  rowData: [],
 };
 
-const keyFor = (row, col) => `${row}:${col}`;
+function keyFor(row, col) {
+  return `${row}:${col}`;
+}
 
-const isFormula = (value) => typeof value === 'string' && value.trim().startsWith('=');
+function isFormula(value) {
+  return typeof value === 'string' && value.trim().startsWith('=');
+}
 
 function columnToIndex(label) {
   let result = 0;
-  const upper = label.toUpperCase();
+  const upper = String(label || '').toUpperCase();
   for (let i = 0; i < upper.length; i += 1) {
     const charCode = upper.charCodeAt(i);
     if (charCode < 65 || charCode > 90) {
@@ -32,6 +36,16 @@ function columnToIndex(label) {
     result += charCode - 64;
   }
   return result - 1;
+}
+
+function columnLabel(index) {
+  let label = '';
+  let num = index;
+  while (num >= 0) {
+    label = String.fromCharCode((num % 26) + 65) + label;
+    num = Math.floor(num / 26) - 1;
+  }
+  return label;
 }
 
 function getCellEntry(row, col) {
@@ -54,6 +68,7 @@ function setCellRaw(row, col, rawValue) {
   }
   const entry = state.cells.get(key) ?? {};
   entry.raw = String(rawValue);
+  delete entry.value;
   state.cells.set(key, entry);
 }
 
@@ -63,7 +78,7 @@ function evaluateExpression(expression) {
     throw new Error('Invalid characters in formula');
   }
   // eslint-disable-next-line no-new-func
-  const fn = new Function(`"use strict"; return (${expression});`);
+  const fn = new Function('"use strict"; return (' + expression + ');');
   const result = fn();
   if (typeof result === 'number' && Number.isFinite(result)) {
     return String(result);
@@ -161,36 +176,26 @@ function getDisplayValue(row, col) {
 }
 
 function setStatus(message, type = 'info') {
+  if (!statusElement) {
+    return;
+  }
   statusElement.textContent = message;
   statusElement.classList.remove('success', 'error', 'info');
   statusElement.classList.add(type);
 }
 
-function columnLabel(index) {
-  let label = '';
-  let num = index;
-  while (num >= 0) {
-    label = String.fromCharCode((num % 26) + 65) + label;
-    num = Math.floor(num / 26) - 1;
-  }
-  return label;
-}
-
-function focusCell(row, col) {
-  const cell = sheetElement.querySelector(`td.cell[data-row="${row}"][data-col="${col}"]`);
-  if (cell) {
-    cell.focus();
-  }
-}
-
 function populateSheetSelect() {
-  if (!Array.isArray(state.sheets)) {
-    state.sheets = [];
+  if (!sheetSelect) {
+    return;
   }
+  const sheets = Array.isArray(state.sheets) ? state.sheets : [];
   sheetSelect.innerHTML = '';
-  state.sheets.forEach((sheet) => {
+  sheets.forEach((sheet) => {
+    if (!sheet || typeof sheet.id !== 'number') {
+      return;
+    }
     const option = document.createElement('option');
-    option.value = sheet.id;
+    option.value = String(sheet.id);
     option.textContent = sheet.name;
     if (sheet.id === state.sheetId) {
       option.selected = true;
@@ -199,57 +204,158 @@ function populateSheetSelect() {
   });
 }
 
-function renderTable() {
-  sheetElement.innerHTML = '';
-
-  const thead = document.createElement('thead');
-  const headRow = document.createElement('tr');
-  const corner = document.createElement('th');
-  corner.classList.add('corner');
-  headRow.appendChild(corner);
-
-  for (let col = 0; col < state.colCount; col += 1) {
-    const th = document.createElement('th');
-    th.textContent = columnLabel(col);
-    headRow.appendChild(th);
-  }
-  thead.appendChild(headRow);
-  sheetElement.appendChild(thead);
-
-  const tbody = document.createElement('tbody');
-  for (let row = 0; row < state.rowCount; row += 1) {
-    const tr = document.createElement('tr');
-    const rowHeader = document.createElement('th');
-    rowHeader.textContent = row + 1;
-    tr.appendChild(rowHeader);
-
-    for (let col = 0; col < state.colCount; col += 1) {
-      const cellNode = cellTemplate.content.firstElementChild.cloneNode(true);
-      cellNode.dataset.row = row;
-      cellNode.dataset.col = col;
-      const entry = getCellEntry(row, col);
-      const displayValue = getDisplayValue(row, col);
-      if (displayValue) {
-        cellNode.textContent = displayValue;
-      }
-      if (entry && isFormula(entry.raw)) {
-        cellNode.dataset.formula = entry.raw;
-        cellNode.classList.add('formula-cell');
-      }
-      tr.appendChild(cellNode);
+function rebuildRowData() {
+  state.rowData = Array.from({ length: state.rowCount }, (_, rowIndex) => {
+    const row = { __rowIndex: rowIndex };
+    for (let colIndex = 0; colIndex < state.colCount; colIndex += 1) {
+      row[`c${colIndex}`] = getCellRaw(rowIndex, colIndex);
     }
+    return row;
+  });
+}
 
-    tbody.appendChild(tr);
+function updateRowDataCell(rowIndex, colIndex, rawValue) {
+  if (rowIndex < 0 || rowIndex >= state.rowCount) {
+    return;
+  }
+  while (state.rowData.length <= rowIndex) {
+    state.rowData.push({ __rowIndex: state.rowData.length });
+  }
+  const row = state.rowData[rowIndex] ?? { __rowIndex: rowIndex };
+  row.__rowIndex = rowIndex;
+  row[`c${colIndex}`] = typeof rawValue === 'string' ? rawValue : '';
+  state.rowData[rowIndex] = row;
+}
+
+function pruneInvalidCells() {
+  const invalidKeys = [];
+  state.cells.forEach((_, key) => {
+    const [rowStr, colStr] = key.split(':');
+    const row = Number.parseInt(rowStr, 10);
+    const col = Number.parseInt(colStr, 10);
+    if (row >= state.rowCount || col >= state.colCount) {
+      invalidKeys.push(key);
+    }
+  });
+  invalidKeys.forEach((key) => state.cells.delete(key));
+}
+
+let gridApi = null;
+
+function refreshGridCells() {
+  if (!gridApi) {
+    return;
+  }
+  gridApi.refreshCells({ force: true });
+}
+
+function handleValueSetter(params) {
+  const rowIndex = params.data?.__rowIndex ?? params.node?.rowIndex;
+  const colId = params.column.getColId();
+  const colIndex = Number.parseInt(colId, 10);
+  if (!Number.isInteger(rowIndex) || Number.isNaN(colIndex)) {
+    return false;
+  }
+  const newValue = typeof params.newValue === 'string' ? params.newValue.trim() : '';
+  const previousRaw = getCellRaw(rowIndex, colIndex);
+  if (previousRaw === newValue) {
+    params.data[params.colDef.field] = previousRaw;
+    return false;
+  }
+  if (newValue === '') {
+    state.cells.delete(keyFor(rowIndex, colIndex));
+  } else {
+    setCellRaw(rowIndex, colIndex, newValue);
+  }
+  updateRowDataCell(rowIndex, colIndex, newValue);
+  params.data[params.colDef.field] = newValue;
+  return true;
+}
+
+function createColumnDefs() {
+  const defs = [
+    {
+      headerName: '#',
+      colId: 'rowNumber',
+      valueGetter: (params) => (params.node ? params.node.rowIndex + 1 : ''),
+      width: 70,
+      pinned: 'left',
+      editable: false,
+      sortable: false,
+      filter: false,
+      resizable: false,
+      suppressMenu: true,
+      lockPosition: true,
+      cellClass: 'row-number-cell',
+    },
+  ];
+
+  for (let colIndex = 0; colIndex < state.colCount; colIndex += 1) {
+    defs.push({
+      headerName: columnLabel(colIndex),
+      field: `c${colIndex}`,
+      colId: String(colIndex),
+      editable: true,
+      minWidth: 96,
+      valueSetter: handleValueSetter,
+      valueFormatter(params) {
+        const rowIndex = params.data?.__rowIndex ?? params.node?.rowIndex;
+        if (!Number.isInteger(rowIndex)) {
+          return '';
+        }
+        return getDisplayValue(rowIndex, colIndex);
+      },
+      cellClass(params) {
+        const rowIndex = params.data?.__rowIndex ?? params.node?.rowIndex;
+        if (!Number.isInteger(rowIndex)) {
+          return '';
+        }
+        return isFormula(getCellRaw(rowIndex, colIndex)) ? 'formula-cell' : '';
+      },
+    });
   }
 
-  sheetElement.appendChild(tbody);
+  return defs;
+}
+
+function updateGridStructure() {
+  if (!gridApi) {
+    return;
+  }
+  gridApi.setColumnDefs(createColumnDefs());
+  gridApi.setRowData(state.rowData);
+  if (typeof gridApi.sizeColumnsToFit === 'function') {
+    gridApi.sizeColumnsToFit();
+  }
+  refreshGridCells();
+}
+
+function handleCellValueChanged(params) {
+  const rowIndex = params.data?.__rowIndex ?? params.node?.rowIndex;
+  const colId = params.column.getColId();
+  const colIndex = Number.parseInt(colId, 10);
+  if (!Number.isInteger(rowIndex) || Number.isNaN(colIndex)) {
+    return;
+  }
+  recalculateAllCells();
+  refreshGridCells();
+  const raw = getCellRaw(rowIndex, colIndex);
+  saveChanges({
+    updates: [
+      {
+        row: rowIndex,
+        col: colIndex,
+        value: raw,
+      },
+    ],
+  });
 }
 
 async function loadGrid(sheetId = state.sheetId) {
   try {
     setStatus('Loading…', 'info');
     const url = new URL('/api/grid', window.location.origin);
-    if (typeof sheetId === 'number') {
+    if (typeof sheetId === 'number' && !Number.isNaN(sheetId)) {
       url.searchParams.set('sheetId', sheetId);
     }
     const response = await fetch(url);
@@ -260,17 +366,23 @@ async function loadGrid(sheetId = state.sheetId) {
     state.sheetId = data.sheetId;
     state.rowCount = data.rowCount;
     state.colCount = data.colCount;
-    state.sheets = data.sheets ?? state.sheets;
+    state.sheets = Array.isArray(data.sheets) ? data.sheets : state.sheets;
     state.cells.clear();
-    data.cells.forEach((rowValues, rowIndex) => {
-      rowValues.forEach((value, colIndex) => {
-        if (value !== null && value !== undefined && value !== '') {
-          setCellRaw(rowIndex, colIndex, String(value));
+    if (Array.isArray(data.cells)) {
+      data.cells.forEach((rowValues, rowIndex) => {
+        if (!Array.isArray(rowValues)) {
+          return;
         }
+        rowValues.forEach((value, colIndex) => {
+          if (value !== null && value !== undefined && value !== '') {
+            setCellRaw(rowIndex, colIndex, String(value));
+          }
+        });
       });
-    });
+    }
     recalculateAllCells();
-    renderTable();
+    rebuildRowData();
+    updateGridStructure();
     populateSheetSelect();
     setStatus('Ready', 'info');
   } catch (error) {
@@ -306,183 +418,36 @@ async function saveChanges({ updates = [], rowCount = null, colCount = null }) {
       throw new Error('Save failed');
     }
     const result = await response.json();
+    const previousRowCount = state.rowCount;
+    const previousColCount = state.colCount;
     state.sheetId = result.sheetId;
-    state.rowCount = result.rowCount;
-    state.colCount = result.colCount;
-    const invalidKeys = [];
-    state.cells.forEach((_, key) => {
-      const [row, col] = key.split(':').map((part) => Number.parseInt(part, 10));
-      if (row >= state.rowCount || col >= state.colCount) {
-        invalidKeys.push(key);
-      }
-    });
-    invalidKeys.forEach((key) => state.cells.delete(key));
-    updates.forEach((item) => {
-      const raw = typeof item.value === 'string' ? item.value : '';
-      if (raw === '') {
-        state.cells.delete(keyFor(item.row, item.col));
-      } else {
-        setCellRaw(item.row, item.col, raw);
-      }
-    });
-    recalculateAllCells();
-    renderTable();
+    if (typeof result.rowCount === 'number') {
+      state.rowCount = result.rowCount;
+    }
+    if (typeof result.colCount === 'number') {
+      state.colCount = result.colCount;
+    }
+    const dimensionChanged = previousRowCount !== state.rowCount || previousColCount !== state.colCount;
+    pruneInvalidCells();
+    if (dimensionChanged) {
+      rebuildRowData();
+      updateGridStructure();
+    } else if (updates.length) {
+      updates.forEach((item) => {
+        if (typeof item.row !== 'number' || typeof item.col !== 'number') {
+          return;
+        }
+        const raw = typeof item.value === 'string' ? item.value.trim() : '';
+        updateRowDataCell(item.row, item.col, raw);
+      });
+      refreshGridCells();
+    }
     setStatus('All changes saved', 'success');
   } catch (error) {
     console.error(error);
     setStatus('Failed to save changes', 'error');
   }
 }
-
-sheetElement.addEventListener('input', (event) => {
-  if (!event.target.matches('td.cell')) {
-    return;
-  }
-  event.target.classList.add('modified');
-});
-
-sheetElement.addEventListener('focusin', (event) => {
-  const target = event.target;
-  if (!target.matches('td.cell')) {
-    return;
-  }
-  const row = Number.parseInt(target.dataset.row, 10);
-  const col = Number.parseInt(target.dataset.col, 10);
-  const entry = getCellEntry(row, col);
-  if (entry && isFormula(entry.raw)) {
-    target.textContent = entry.raw;
-  }
-});
-
-sheetElement.addEventListener('focusout', (event) => {
-  const target = event.target;
-  if (!target.matches('td.cell')) {
-    return;
-  }
-  const row = Number.parseInt(target.dataset.row, 10);
-  const col = Number.parseInt(target.dataset.col, 10);
-  const value = target.textContent.trim();
-  const previousRaw = getCellRaw(row, col);
-  if (previousRaw === value) {
-    target.textContent = getDisplayValue(row, col);
-    if (previousRaw !== '' && isFormula(previousRaw)) {
-      target.dataset.formula = previousRaw;
-      target.classList.add('formula-cell');
-    } else {
-      target.removeAttribute('data-formula');
-      target.classList.remove('formula-cell');
-    }
-    target.classList.remove('modified');
-    return;
-  }
-  if (value === '') {
-    state.cells.delete(keyFor(row, col));
-  } else {
-    setCellRaw(row, col, value);
-  }
-  recalculateAllCells();
-  const displayValue = getDisplayValue(row, col);
-  if (displayValue !== value) {
-    target.textContent = displayValue;
-  }
-  if (value !== '' && isFormula(value)) {
-    target.dataset.formula = value;
-    target.classList.add('formula-cell');
-  } else {
-    target.removeAttribute('data-formula');
-    target.classList.remove('formula-cell');
-  }
-  target.classList.remove('modified');
-  saveChanges({
-    updates: [
-      {
-        row,
-        col,
-        value,
-      },
-    ],
-  });
-});
-
-sheetElement.addEventListener('keydown', (event) => {
-  const target = event.target;
-  if (!target.matches('td.cell')) {
-    return;
-  }
-  if (event.key === 'Enter') {
-    event.preventDefault();
-    const row = Number.parseInt(target.dataset.row, 10);
-    const col = Number.parseInt(target.dataset.col, 10);
-    const nextRow = event.shiftKey ? Math.max(0, row - 1) : Math.min(state.rowCount - 1, row + 1);
-    focusCell(nextRow, col);
-  }
-});
-
-addRowButton.addEventListener('click', () => {
-  saveChanges({ rowCount: state.rowCount + 1 });
-});
-
-addColumnButton.addEventListener('click', () => {
-  saveChanges({ colCount: state.colCount + 1 });
-});
-
-resetButton.addEventListener('click', () => {
-  if (!window.confirm('This will clear all values in the current sheet. Continue?')) {
-    return;
-  }
-  const updates = [];
-  state.cells.forEach((_, key) => {
-    const [row, col] = key.split(':').map((part) => Number.parseInt(part, 10));
-    updates.push({ row, col, value: '' });
-  });
-  state.cells.clear();
-  saveChanges({ updates, rowCount: state.rowCount, colCount: state.colCount });
-});
-
-sheetSelect.addEventListener('change', (event) => {
-  const selectedId = Number.parseInt(event.target.value, 10);
-  if (Number.isNaN(selectedId) || selectedId === state.sheetId) {
-    return;
-  }
-  loadGrid(selectedId);
-});
-
-renameButton.addEventListener('click', async () => {
-  const current = state.sheets.find((sheet) => sheet.id === state.sheetId);
-  const proposed = window.prompt('Rename sheet', current ? current.name : '');
-  if (proposed === null) {
-    return;
-  }
-  const name = proposed.trim();
-  if (!name) {
-    setStatus('Sheet name cannot be empty', 'error');
-    return;
-  }
-  try {
-    setStatus('Renaming…', 'info');
-    const response = await fetch(`/api/sheets/${state.sheetId}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ name }),
-    });
-    if (response.status === 409) {
-      setStatus('A sheet with that name already exists', 'error');
-      return;
-    }
-    if (!response.ok) {
-      throw new Error('Rename failed');
-    }
-    const result = await response.json();
-    state.sheets = result.sheets;
-    populateSheetSelect();
-    setStatus('Sheet renamed', 'success');
-  } catch (error) {
-    console.error(error);
-    setStatus('Unable to rename sheet', 'error');
-  }
-});
 
 function collectSheetSnapshot() {
   const snapshot = [];
@@ -494,49 +459,170 @@ function collectSheetSnapshot() {
   return snapshot;
 }
 
-saveSheetButton.addEventListener('click', async () => {
-  const proposed = window.prompt('Save current sheet as…');
-  if (proposed === null) {
-    return;
-  }
-  const name = proposed.trim();
-  if (!name) {
-    setStatus('Sheet name cannot be empty', 'error');
-    return;
-  }
-  const snapshot = collectSheetSnapshot();
-  try {
-    setStatus('Saving copy…', 'info');
-    const response = await fetch('/api/sheets', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name,
-        rowCount: state.rowCount,
-        colCount: state.colCount,
-        cells: snapshot,
-      }),
-    });
-    if (response.status === 409) {
-      setStatus('A sheet with that name already exists', 'error');
+if (addRowButton) {
+  addRowButton.addEventListener('click', () => {
+    saveChanges({ rowCount: state.rowCount + 1 });
+  });
+}
+
+if (addColumnButton) {
+  addColumnButton.addEventListener('click', () => {
+    saveChanges({ colCount: state.colCount + 1 });
+  });
+}
+
+if (resetButton) {
+  resetButton.addEventListener('click', () => {
+    if (!window.confirm('This will clear all values in the current sheet. Continue?')) {
       return;
     }
-    if (!response.ok) {
-      throw new Error('Save failed');
+    const updates = [];
+    state.cells.forEach((_, key) => {
+      const [rowStr, colStr] = key.split(':');
+      const row = Number.parseInt(rowStr, 10);
+      const col = Number.parseInt(colStr, 10);
+      updates.push({ row, col, value: '' });
+    });
+    state.cells.clear();
+    recalculateAllCells();
+    rebuildRowData();
+    updateGridStructure();
+    saveChanges({ updates, rowCount: state.rowCount, colCount: state.colCount });
+  });
+}
+
+if (sheetSelect) {
+  sheetSelect.addEventListener('change', (event) => {
+    const selectedId = Number.parseInt(event.target.value, 10);
+    if (Number.isNaN(selectedId) || selectedId === state.sheetId) {
+      return;
     }
-    const result = await response.json();
-    state.sheets = result.sheets;
-    await loadGrid(result.sheetId);
-    setStatus('Sheet copy saved', 'success');
-  } catch (error) {
-    console.error(error);
-    setStatus('Unable to save sheet copy', 'error');
+    loadGrid(selectedId);
+  });
+}
+
+if (renameButton) {
+  renameButton.addEventListener('click', async () => {
+    const current = Array.isArray(state.sheets)
+      ? state.sheets.find((sheet) => sheet.id === state.sheetId)
+      : null;
+    const proposed = window.prompt('Rename sheet', current ? current.name : '');
+    if (proposed === null) {
+      return;
+    }
+    const name = proposed.trim();
+    if (!name) {
+      setStatus('Sheet name cannot be empty', 'error');
+      return;
+    }
+    try {
+      setStatus('Renaming…', 'info');
+      const response = await fetch(`/api/sheets/${state.sheetId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name }),
+      });
+      if (response.status === 409) {
+        setStatus('A sheet with that name already exists', 'error');
+        return;
+      }
+      if (!response.ok) {
+        throw new Error('Rename failed');
+      }
+      const result = await response.json();
+      state.sheets = Array.isArray(result.sheets) ? result.sheets : state.sheets;
+      populateSheetSelect();
+      setStatus('Sheet renamed', 'success');
+    } catch (error) {
+      console.error(error);
+      setStatus('Unable to rename sheet', 'error');
+    }
+  });
+}
+
+if (saveSheetButton) {
+  saveSheetButton.addEventListener('click', async () => {
+    const proposed = window.prompt('Save current sheet as…');
+    if (proposed === null) {
+      return;
+    }
+    const name = proposed.trim();
+    if (!name) {
+      setStatus('Sheet name cannot be empty', 'error');
+      return;
+    }
+    const snapshot = collectSheetSnapshot();
+    try {
+      setStatus('Saving copy…', 'info');
+      const response = await fetch('/api/sheets', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name,
+          rowCount: state.rowCount,
+          colCount: state.colCount,
+          cells: snapshot,
+        }),
+      });
+      if (response.status === 409) {
+        setStatus('A sheet with that name already exists', 'error');
+        return;
+      }
+      if (!response.ok) {
+        throw new Error('Save failed');
+      }
+      const result = await response.json();
+      state.sheets = Array.isArray(result.sheets) ? result.sheets : state.sheets;
+      await loadGrid(result.sheetId);
+      setStatus('Sheet copy saved', 'success');
+    } catch (error) {
+      console.error(error);
+      setStatus('Unable to save sheet copy', 'error');
+    }
+  });
+}
+
+rebuildRowData();
+
+const gridOptions = {
+  rowData: state.rowData,
+  columnDefs: createColumnDefs(),
+  defaultColDef: {
+    editable: true,
+    resizable: true,
+    sortable: false,
+    filter: false,
+  },
+  maintainColumnOrder: true,
+  enterMovesDownAfterEdit: true,
+  stopEditingWhenCellsLoseFocus: true,
+  onCellValueChanged: handleCellValueChanged,
+  getRowId: (params) => (params.data ? `row-${params.data.__rowIndex}` : `row-${params.node?.rowIndex ?? 0}`),
+  onGridReady(params) {
+    gridApi = params.api;
+    if (typeof params.api.sizeColumnsToFit === 'function') {
+      params.api.sizeColumnsToFit();
+    }
+  },
+};
+
+function initializeGrid() {
+  if (!gridContainer) {
+    return;
   }
-});
+  if (!window.agGrid) {
+    console.error('AG Grid library failed to load');
+    return;
+  }
+  gridApi = agGrid.createGrid(gridContainer, gridOptions);
+}
 
 window.addEventListener('load', () => {
+  initializeGrid();
   populateSheetSelect();
   loadGrid();
 });
