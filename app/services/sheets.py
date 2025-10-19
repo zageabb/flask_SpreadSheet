@@ -3,12 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
+import sqlite3
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 from flask import abort
-from pydantic import ValidationError
-from sqlmodel import Session, select
-
 from ..models import Sheet, SheetCell
 from ..schemas import (
     CellUpdate,
@@ -18,67 +16,76 @@ from ..schemas import (
     FilterOperator,
     RowPayload,
     SortDirection,
+    ValidationError,
 )
-from .database import get_session
+from .database import get_connection
 
 
 @dataclass(frozen=True)
 class ColumnRule:
-    """Represents validation rules for a column."""
-
     type: str
     allow_blank: bool = True
 
 
 DEFAULT_COLUMN_RULE = ColumnRule(type="text")
-
-# Basic column configuration used for validation. Columns not listed fall back to
-# ``DEFAULT_COLUMN_RULE`` which accepts free-form text.
-COLUMN_RULES: Dict[int, ColumnRule] = {
-    1: ColumnRule(type="number"),
-}
+COLUMN_RULES: Dict[int, ColumnRule] = {1: ColumnRule(type="number")}
 
 
 class SheetRepository:
-    """Data access layer for sheet and sheet cell records."""
+    """Data access layer backed by SQLite."""
 
-    def __init__(self, session: Session) -> None:
-        self.session = session
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        self.connection = connection
+
+    def commit(self) -> None:
+        self.connection.commit()
 
     def list_sheets(self) -> List[Dict[str, Any]]:
-        statement = select(Sheet).order_by(Sheet.created_at, Sheet.id)
+        cursor = self.connection.execute(
+            "SELECT id, name FROM sheets ORDER BY created_at, id"
+        )
         return [
-            {"id": sheet.id, "name": sheet.name}
-            for sheet in self.session.exec(statement).all()
+            {"id": row["id"], "name": row["name"]}
+            for row in cursor.fetchall()
         ]
 
     def get_first_sheet(self) -> Sheet | None:
-        statement = select(Sheet).order_by(Sheet.id).limit(1)
-        return self.session.exec(statement).first()
+        cursor = self.connection.execute(
+            "SELECT * FROM sheets ORDER BY id LIMIT 1"
+        )
+        row = cursor.fetchone()
+        return Sheet.from_row(row) if row else None
 
     def get_sheet(self, sheet_id: int) -> Sheet | None:
-        return self.session.get(Sheet, sheet_id)
+        cursor = self.connection.execute(
+            "SELECT * FROM sheets WHERE id = ?", (sheet_id,)
+        )
+        row = cursor.fetchone()
+        return Sheet.from_row(row) if row else None
 
     def add_sheet(self, name: str, row_count: int, col_count: int) -> Sheet:
-        now = datetime.now(UTC)
-        sheet = Sheet(
-            name=name,
-            row_count=row_count,
-            col_count=col_count,
-            created_at=now,
-            updated_at=now,
+        cursor = self.connection.execute(
+            """
+            INSERT INTO sheets (name, row_count, col_count, created_at, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            (name, row_count, col_count),
         )
-        self.session.add(sheet)
-        self.session.flush()
+        sheet_id = cursor.lastrowid
+        sheet = self.get_sheet(int(sheet_id))
+        if sheet is None:  # pragma: no cover - defensive guard
+            raise RuntimeError("Failed to create sheet")
         return sheet
 
     def rename_sheet(self, sheet_id: int, name: str) -> Sheet | None:
-        sheet = self.get_sheet(sheet_id)
-        if sheet is None:
+        now = datetime.now(UTC).isoformat()
+        cursor = self.connection.execute(
+            "UPDATE sheets SET name = ?, updated_at = ? WHERE id = ?",
+            (name, now, sheet_id),
+        )
+        if cursor.rowcount == 0:
             return None
-        sheet.name = name
-        sheet.updated_at = datetime.now(UTC)
-        return sheet
+        return self.get_sheet(sheet_id)
 
     def update_dimensions(
         self, sheet_id: int, row_count: int | None, col_count: int | None
@@ -86,58 +93,70 @@ class SheetRepository:
         sheet = self.get_sheet(sheet_id)
         if sheet is None:
             return None
+        new_row_count = sheet.row_count
+        new_col_count = sheet.col_count
         changed = False
         if isinstance(row_count, int) and row_count > 0:
-            sheet.row_count = row_count
+            new_row_count = row_count
             changed = True
         if isinstance(col_count, int) and col_count > 0:
-            sheet.col_count = col_count
+            new_col_count = col_count
             changed = True
-        if changed:
-            sheet.updated_at = datetime.now(UTC)
-        return sheet
+        if not changed:
+            return sheet
+        now = datetime.now(UTC).isoformat()
+        self.connection.execute(
+            """
+            UPDATE sheets
+            SET row_count = ?, col_count = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (new_row_count, new_col_count, now, sheet_id),
+        )
+        return self.get_sheet(sheet_id)
 
     def get_cells(self, sheet_id: int) -> List[SheetCell]:
-        statement = select(SheetCell).where(SheetCell.sheet_id == sheet_id)
-        return list(self.session.exec(statement).all())
+        cursor = self.connection.execute(
+            "SELECT * FROM sheet_cells WHERE sheet_id = ?",
+            (sheet_id,),
+        )
+        return [SheetCell.from_row(row) for row in cursor.fetchall()]
 
     def upsert_cell(self, sheet_id: int, row: int, col: int, value: str | None) -> None:
-        cell = self.session.get(SheetCell, (sheet_id, row, col))
         if value is None or value == "":
-            if cell is not None:
-                self.session.delete(cell)
-            return
-        if cell is None:
-            cell = SheetCell(
-                sheet_id=sheet_id,
-                row_index=row,
-                col_index=col,
-                value=value,
+            self.connection.execute(
+                "DELETE FROM sheet_cells WHERE sheet_id = ? AND row_index = ? AND col_index = ?",
+                (sheet_id, row, col),
             )
-            self.session.add(cell)
-        else:
-            cell.value = value
+            return
+        self.connection.execute(
+            """
+            INSERT INTO sheet_cells (sheet_id, row_index, col_index, value)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(sheet_id, row_index, col_index)
+            DO UPDATE SET value = excluded.value
+            """,
+            (sheet_id, row, col, value),
+        )
 
     def has_sheets(self) -> bool:
-        statement = select(Sheet.id).limit(1)
-        return self.session.exec(statement).first() is not None
+        cursor = self.connection.execute("SELECT 1 FROM sheets LIMIT 1")
+        return cursor.fetchone() is not None
 
 
 class SheetService:
-    """Business logic for spreadsheet operations."""
-
     def __init__(self, repository: SheetRepository) -> None:
         self.repository = repository
-        self.session = repository.session
 
     def list_sheets(self) -> List[Dict[str, Any]]:
         return self.repository.list_sheets()
 
     def _get_sheet_or_404(self, sheet_id: int | None) -> Sheet:
-        if sheet_id is None:
-            sheet = self.repository.get_first_sheet()
-        else:
-            sheet = self.repository.get_sheet(sheet_id)
+        sheet = (
+            self.repository.get_first_sheet()
+            if sheet_id is None
+            else self.repository.get_sheet(sheet_id)
+        )
         if sheet is None:
             abort(404, description="Sheet not found")
         return sheet
@@ -156,7 +175,7 @@ class SheetService:
     def ensure_default_sheet(self) -> None:
         if not self.repository.has_sheets():
             self.repository.add_sheet("Sheet 1", 12, 8)
-            self.session.commit()
+            self.repository.commit()
 
     def update_dimensions(
         self, sheet_id: int, row_count: int | None, col_count: int | None
@@ -164,7 +183,7 @@ class SheetService:
         sheet = self.repository.update_dimensions(sheet_id, row_count, col_count)
         if sheet is None:
             abort(404, description="Sheet not found")
-        self.session.commit()
+        self.repository.commit()
 
     def _normalize_cell_value(self, column_index: int, value: Any) -> str | None:
         if value is None:
@@ -211,7 +230,7 @@ class SheetService:
             else:
                 try:
                     cell_update = CellUpdate.model_validate(update)
-                except ValidationError:  # pragma: no cover - ignore malformed updates silently
+                except ValidationError:
                     continue
             row = cell_update.row
             col = cell_update.col
@@ -220,7 +239,7 @@ class SheetService:
                 self._normalize_cell_value(col, value) if validate else value
             )
             self.repository.upsert_cell(sheet_id, row, col, normalized)
-        self.session.commit()
+        self.repository.commit()
 
     def create_sheet(
         self, name: str, row_count: int, col_count: int, cells: Iterable[Dict[str, Any]]
@@ -236,14 +255,14 @@ class SheetService:
             if value is None or value == "":
                 continue
             self.repository.upsert_cell(sheet.id, row, col, str(value))
-        self.session.commit()
+        self.repository.commit()
         return sheet.id
 
     def rename_sheet(self, sheet_id: int, name: str) -> int:
         sheet = self.repository.rename_sheet(sheet_id, name)
         if sheet is None:
             abort(404, description="Sheet not found")
-        self.session.commit()
+        self.repository.commit()
         return sheet.id
 
     def query_sheet_data(self, params: DataQueryParams) -> Dict[str, Any]:
@@ -268,7 +287,7 @@ class SheetService:
             page_size = params.page_size
 
         serialized_rows = [
-            RowPayload(rowIndex=row_index, values=row_values).model_dump(by_alias=True)
+            RowPayload(row_index=row_index, values=row_values).model_dump(by_alias=True)
             for row_index, row_values in page_rows
         ]
 
@@ -450,11 +469,11 @@ def _sort_rows(
 
 
 def list_sheets() -> List[Dict[str, Any]]:
-    return SheetService(SheetRepository(get_session())).list_sheets()
+    return SheetService(SheetRepository(get_connection())).list_sheets()
 
 
 def fetch_sheet(sheet_id: int | None = None) -> Tuple[int, str, int, int, List[List[str]]]:
-    return SheetService(SheetRepository(get_session())).fetch_sheet(sheet_id)
+    return SheetService(SheetRepository(get_connection())).fetch_sheet(sheet_id)
 
 
 def apply_updates(
@@ -463,13 +482,13 @@ def apply_updates(
     *,
     validate: bool = False,
 ) -> None:
-    SheetService(SheetRepository(get_session())).apply_updates(
+    SheetService(SheetRepository(get_connection())).apply_updates(
         sheet_id, updates, validate=validate
     )
 
 
 def update_dimensions(sheet_id: int, row_count: int | None, col_count: int | None) -> None:
-    SheetService(SheetRepository(get_session())).update_dimensions(
+    SheetService(SheetRepository(get_connection())).update_dimensions(
         sheet_id, row_count, col_count
     )
 
@@ -477,22 +496,35 @@ def update_dimensions(sheet_id: int, row_count: int | None, col_count: int | Non
 def create_sheet(
     name: str, row_count: int, col_count: int, cells: Iterable[Dict[str, Any]]
 ) -> int:
-    return SheetService(SheetRepository(get_session())).create_sheet(
+    return SheetService(SheetRepository(get_connection())).create_sheet(
         name, row_count, col_count, cells
     )
 
 
 def rename_sheet(sheet_id: int, name: str) -> int:
-    return SheetService(SheetRepository(get_session())).rename_sheet(sheet_id, name)
+    return SheetService(SheetRepository(get_connection())).rename_sheet(sheet_id, name)
 
 
 def query_sheet_data(params: DataQueryParams) -> Dict[str, Any]:
-    return SheetService(SheetRepository(get_session())).query_sheet_data(params)
+    return SheetService(SheetRepository(get_connection())).query_sheet_data(params)
 
 
 def write_sheet_data(request: DataWriteRequest) -> Dict[str, Any]:
-    return SheetService(SheetRepository(get_session())).write_sheet_data(request)
+    return SheetService(SheetRepository(get_connection())).write_sheet_data(request)
 
 
 def ensure_default_sheet() -> None:
-    SheetService(SheetRepository(get_session())).ensure_default_sheet()
+    SheetService(SheetRepository(get_connection())).ensure_default_sheet()
+
+
+__all__ = [
+    "apply_updates",
+    "create_sheet",
+    "ensure_default_sheet",
+    "fetch_sheet",
+    "list_sheets",
+    "query_sheet_data",
+    "rename_sheet",
+    "update_dimensions",
+    "write_sheet_data",
+]

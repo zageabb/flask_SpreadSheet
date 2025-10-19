@@ -3,8 +3,12 @@ import json
 import os
 import secrets
 from pathlib import Path
+from typing import Any
 
-import pandas as pd
+try:  # pragma: no cover - optional dependency
+    import pandas as pd  # type: ignore[import-not-found]
+except ModuleNotFoundError:  # pragma: no cover - fallback for tests
+    pd = None  # type: ignore[assignment]
 from flask import (
     Blueprint,
     Response,
@@ -16,12 +20,12 @@ from flask import (
     send_file,
     session,
 )
-from sqlalchemy.exc import IntegrityError
+import sqlite3
 from werkzeug.utils import secure_filename
-from pydantic import ValidationError
 
-from ..services import sheets as sheet_service
 from .. import schemas
+from ..schemas import ValidationError
+from ..services import sheets as sheet_service
 
 
 IMPORT_PREVIEW_KEY = "import_preview_id"
@@ -104,7 +108,7 @@ def create_sheet():
 
     try:
         sheet_id = sheet_service.create_sheet(name, row_count, col_count, cells)
-    except IntegrityError:
+    except sqlite3.IntegrityError:
         abort(409, description="A sheet with that name already exists")
 
     return (
@@ -130,7 +134,7 @@ def rename_sheet(sheet_id: int):
 
     try:
         sheet_service.rename_sheet(sheet_id, name)
-    except IntegrityError:
+    except sqlite3.IntegrityError:
         abort(409, description="A sheet with that name already exists")
 
     return jsonify({"sheets": sheet_service.list_sheets(), "sheetId": sheet_id, "name": name}), 200
@@ -188,7 +192,9 @@ def _safe_excel_sheet_name(name: str) -> str:
     return candidate[:31]
 
 
-def _sheet_to_dataframe(sheet_id: int | None) -> tuple[int, str, pd.DataFrame]:
+def _sheet_to_dataframe(sheet_id: int | None) -> tuple[int, str, Any]:
+    if pd is None:  # pragma: no cover - optional dependency missing
+        abort(503, description="Spreadsheet export requires pandas")
     sheet_id, sheet_name, _row_count, col_count, data = sheet_service.fetch_sheet(sheet_id)
     columns = [_column_label(index) for index in range(col_count)]
     dataframe = pd.DataFrame(data, columns=columns)
@@ -197,6 +203,8 @@ def _sheet_to_dataframe(sheet_id: int | None) -> tuple[int, str, pd.DataFrame]:
 
 @main_bp.route("/import", methods=["POST"])
 def import_sheet_data():
+    if pd is None:  # pragma: no cover - optional dependency missing
+        abort(503, description="Spreadsheet import requires pandas")
     file = request.files.get("file")
     if file is None or not file.filename:
         abort(400, description="A CSV or XLSX file is required")

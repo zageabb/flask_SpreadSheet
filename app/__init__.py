@@ -5,11 +5,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
-from sqlalchemy.orm import sessionmaker
-from sqlmodel import Session as SQLModelSession, create_engine
 
-from .config import config_by_name, DevelopmentConfig
-from .services.database import close_db, get_session, run_migrations
+from .config import DevelopmentConfig, config_by_name
+from .services.database import close_db, get_connection, run_migrations
 from .services.sheets import SheetRepository, SheetService
 
 
@@ -64,14 +62,6 @@ def create_app(config_name: str | None = None) -> Flask:
     database_url = f"sqlite:///{database_path}"
     app.config["DATABASE_URL"] = database_url
 
-    engine = create_engine(
-        database_url,
-        echo=app.config.get("SQL_ECHO", False),
-        connect_args={"check_same_thread": False},
-    )
-    session_factory = sessionmaker(bind=engine, class_=SQLModelSession, expire_on_commit=False)
-    app.extensions["sqlmodel"] = {"engine": engine, "session_factory": session_factory}
-
     logging_config = app.config.get("LOGGING_CONFIG")
     if logging_config:
         logging_path = Path(logging_config)
@@ -93,7 +83,7 @@ def create_app(config_name: str | None = None) -> Flask:
 
     with app.app_context():
         run_migrations()
-        service = SheetService(SheetRepository(get_session()))
+        service = SheetService(SheetRepository(get_connection()))
         service.ensure_default_sheet()
         close_db()
 

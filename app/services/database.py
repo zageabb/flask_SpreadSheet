@@ -1,66 +1,87 @@
-"""Database helpers using SQLModel sessions."""
+"""SQLite helpers for the spreadsheet application."""
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
-from typing import Any, Dict
+from typing import Callable
 
-from alembic import command
-from alembic.config import Config
 from flask import current_app, g
-from sqlmodel import Session
 
 
-_SESSION_KEY = "sqlmodel_session"
-_MIGRATION_FLAG = "_migrations_applied"
+_CONNECTION_KEY = "sqlite_connection"
+_SCHEMA_VERSION_KEY = "_schema_initialized"
 
 
-def get_engine():
-    """Return the SQLModel engine configured on the current app."""
-
-    extension: Dict[str, Any] = current_app.extensions.setdefault("sqlmodel", {})
-    engine = extension.get("engine")
-    if engine is None:  # pragma: no cover - misconfiguration guard
-        raise RuntimeError("SQLModel engine has not been initialised")
-    return engine
+def _get_database_path() -> Path:
+    database_path = current_app.config.get("DATABASE_PATH")
+    if not database_path:
+        raise RuntimeError("DATABASE_PATH is not configured")
+    return Path(database_path)
 
 
-def get_session() -> Session:
-    """Return a scoped SQLModel session for the current request context."""
+def get_connection() -> sqlite3.Connection:
+    """Return a connection scoped to the current application context."""
 
-    if not hasattr(g, _SESSION_KEY):
-        extension: Dict[str, Any] = current_app.extensions.get("sqlmodel", {})
-        session_factory = extension.get("session_factory")
-        if session_factory is None:  # pragma: no cover - misconfiguration guard
-            raise RuntimeError("SQLModel session factory has not been initialised")
-        setattr(g, _SESSION_KEY, session_factory())
-    return getattr(g, _SESSION_KEY)
+    connection: sqlite3.Connection | None = getattr(g, _CONNECTION_KEY, None)
+    if connection is None:
+        database_path = _get_database_path()
+        database_path.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(database_path)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        setattr(g, _CONNECTION_KEY, connection)
+    return connection
 
 
 def close_db(_: Exception | None = None) -> None:
-    """Close the active SQLModel session if present."""
+    """Close the active database connection if one exists."""
 
-    session: Session | None = getattr(g, _SESSION_KEY, None)
-    if session is not None:
-        session.close()
-        delattr(g, _SESSION_KEY)
+    connection: sqlite3.Connection | None = getattr(g, _CONNECTION_KEY, None)
+    if connection is not None:
+        connection.close()
+        delattr(g, _CONNECTION_KEY)
 
 
 def run_migrations() -> None:
-    """Apply pending Alembic migrations for the current application."""
+    """Create database tables if they do not already exist."""
 
-    if current_app.config.get(_MIGRATION_FLAG):
+    if current_app.config.get(_SCHEMA_VERSION_KEY):
         return
 
-    config_path = Path(current_app.root_path).parent / "alembic.ini"
-    if not config_path.exists():  # pragma: no cover - configuration error
-        current_app.logger.warning("Alembic configuration not found at %s", config_path)
-        return
+    def execute(sql: str, *, on: sqlite3.Connection) -> None:
+        on.executescript(sql)
 
-    alembic_cfg = Config(str(config_path))
-    database_url = current_app.config.get("DATABASE_URL")
-    if database_url:
-        alembic_cfg.set_main_option("sqlalchemy.url", database_url)
+    ensure_schema(execute)
+    current_app.config[_SCHEMA_VERSION_KEY] = True
 
-    current_app.logger.info("Running database migrations")
-    command.upgrade(alembic_cfg, "head")
-    current_app.config[_MIGRATION_FLAG] = True
+
+def ensure_schema(executor: Callable[[str, sqlite3.Connection], None] | None = None) -> None:
+    """Ensure that all required tables are present in the database."""
+
+    sql = """
+    CREATE TABLE IF NOT EXISTS sheets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        row_count INTEGER NOT NULL,
+        col_count INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+        updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+    );
+
+    CREATE TABLE IF NOT EXISTS sheet_cells (
+        sheet_id INTEGER NOT NULL,
+        row_index INTEGER NOT NULL,
+        col_index INTEGER NOT NULL,
+        value TEXT,
+        PRIMARY KEY (sheet_id, row_index, col_index),
+        FOREIGN KEY (sheet_id) REFERENCES sheets(id) ON DELETE CASCADE
+    );
+    """
+
+    connection = get_connection()
+    runner = executor or (lambda statement, *, on: on.executescript(statement))
+    runner(sql, on=connection)
+    connection.commit()
+
+
+__all__ = ["close_db", "ensure_schema", "get_connection", "run_migrations"]
