@@ -2,3 +2,5 @@ Flask
 pydantic
 pandas
 openpyxl
+sqlmodel
+alembic
