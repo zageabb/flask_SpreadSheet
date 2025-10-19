@@ -1,0 +1,8 @@
+description: >-
+  Lightweight Flask spreadsheet application with a SQLite backend and JSON APIs for managing tabular data.
+topics:
+  - flask
+  - spreadsheet
+  - sqlite
+  - web-application
+  - data-entry
