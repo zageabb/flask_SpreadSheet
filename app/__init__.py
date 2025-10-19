@@ -39,7 +39,15 @@ def register_error_handlers(app: Flask) -> None:
 def create_app(config_name: str | None = None) -> Flask:
     load_dotenv()
 
-    app = Flask(__name__, instance_relative_config=True)
+    package_root = Path(__file__).resolve().parent
+    project_root = package_root.parent
+
+    app = Flask(
+        __name__,
+        instance_relative_config=True,
+        template_folder=str(project_root / "templates"),
+        static_folder=str(project_root / "static"),
+    )
 
     config_key = (config_name or os.getenv("FLASK_CONFIG", "development")).lower()
     config_object = config_by_name.get(config_key, DevelopmentConfig)
