@@ -1,73 +1,58 @@
-"""Lightweight data models used by the spreadsheet services."""
+"""SQLModel definitions for the spreadsheet domain objects."""
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
+
+import sqlalchemy as sa
+from sqlmodel import Field, SQLModel
 
 
-def _parse_datetime(value: Any) -> datetime:
-    """Parse a database timestamp into a :class:`datetime` instance."""
+def _utcnow() -> datetime:
+    """Return the current UTC time with timezone information."""
 
-    if isinstance(value, datetime):
-        return value
-    if value in (None, ""):
-        return datetime.now(timezone.utc)
-    if isinstance(value, (int, float)):
-        return datetime.fromtimestamp(value, tz=timezone.utc)
-    text = str(value)
-    if text.endswith("Z"):
-        text = text[:-1] + "+00:00"
-    for fmt in (None, "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"):
-        try:
-            if fmt is None:
-                return datetime.fromisoformat(text)
-            return datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
-        except ValueError:
-            continue
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
-@dataclass(slots=True)
-class Sheet:
-    """Representation of a sheet record."""
+class Sheet(SQLModel, table=True):
+    """ORM model representing a spreadsheet sheet."""
 
-    id: int
-    name: str
+    __tablename__ = "sheets"
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(index=True, unique=True)
     row_count: int
     col_count: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=sa.Column(
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+    )
+    updated_at: datetime = Field(
+        default_factory=_utcnow,
+        sa_column=sa.Column(
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+            server_onupdate=sa.func.now(),
+        ),
+    )
 
-    @classmethod
-    def from_row(cls, row: Any) -> "Sheet":
-        return cls(
-            id=row["id"],
-            name=row["name"],
-            row_count=row["row_count"],
-            col_count=row["col_count"],
-            created_at=_parse_datetime(row["created_at"]),
-            updated_at=_parse_datetime(row["updated_at"]),
-        )
 
+class SheetCell(SQLModel, table=True):
+    """ORM model representing a single cell within a sheet."""
 
-@dataclass(slots=True)
-class SheetCell:
-    """Representation of a sheet cell record."""
+    __tablename__ = "sheet_cells"
 
-    sheet_id: int
-    row_index: int
-    col_index: int
-    value: str | None
-
-    @classmethod
-    def from_row(cls, row: Any) -> "SheetCell":
-        return cls(
-            sheet_id=row["sheet_id"],
-            row_index=row["row_index"],
-            col_index=row["col_index"],
-            value=row["value"],
-        )
+    sheet_id: int = Field(foreign_key="sheets.id", primary_key=True)
+    row_index: int = Field(primary_key=True)
+    col_index: int = Field(primary_key=True)
+    value: str | None = Field(
+        default=None,
+        sa_column=sa.Column(sa.Text(), nullable=True),
+    )
 
 
 __all__ = ["Sheet", "SheetCell"]

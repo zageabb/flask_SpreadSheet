@@ -1,3 +1,5 @@
+alembic
 Flask
-pandas
 openpyxl
+pandas
+sqlmodel

@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
 
 from .config import DevelopmentConfig, config_by_name
-from .services.database import close_db, get_connection, run_migrations
+from .services.database import close_db, configure_engine, get_session, run_migrations
 from .services.sheets import SheetRepository, SheetService
 
 
@@ -61,6 +61,7 @@ def create_app(config_name: str | None = None) -> Flask:
     app.config["DATABASE_PATH"] = database_path
     database_url = f"sqlite:///{database_path}"
     app.config["DATABASE_URL"] = database_url
+    configure_engine(app, database_url)
 
     logging_config = app.config.get("LOGGING_CONFIG")
     if logging_config:
@@ -83,7 +84,7 @@ def create_app(config_name: str | None = None) -> Flask:
 
     with app.app_context():
         run_migrations()
-        service = SheetService(SheetRepository(get_connection()))
+        service = SheetService(SheetRepository(get_session()))
         service.ensure_default_sheet()
         close_db()
 

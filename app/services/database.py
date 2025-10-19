@@ -1,87 +1,107 @@
-"""SQLite helpers for the spreadsheet application."""
+"""Database helpers built around SQLModel sessions and Alembic migrations."""
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from typing import Callable
 
-from flask import current_app, g
+from alembic import command
+from alembic.config import Config
+from flask import Flask, current_app, g
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import sessionmaker
+from sqlmodel import Session, create_engine
+
+_ENGINE_KEY = "sqlmodel_engine"
+_SESSION_FACTORY_KEY = "sqlmodel_session_factory"
+_SESSION_KEY = "sqlmodel_session"
+_MIGRATIONS_FLAG = "_alembic_migrated"
 
 
-_CONNECTION_KEY = "sqlite_connection"
-_SCHEMA_VERSION_KEY = "_schema_initialized"
+def configure_engine(app: Flask, database_url: str) -> Engine:
+    """Create and register the SQLModel engine and session factory on the app."""
+
+    connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
+    engine = create_engine(
+        database_url,
+        echo=app.config.get("SQLMODEL_ECHO", False),
+        connect_args=connect_args,
+    )
+
+    session_factory = sessionmaker(
+        bind=engine,
+        class_=Session,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+
+    app.extensions[_ENGINE_KEY] = engine
+    app.extensions[_SESSION_FACTORY_KEY] = session_factory
+    return engine
 
 
-def _get_database_path() -> Path:
-    database_path = current_app.config.get("DATABASE_PATH")
-    if not database_path:
-        raise RuntimeError("DATABASE_PATH is not configured")
-    return Path(database_path)
+def get_engine() -> Engine:
+    """Return the configured SQLAlchemy engine."""
+
+    engine = current_app.extensions.get(_ENGINE_KEY)
+    if engine is None:
+        raise RuntimeError("SQLModel engine has not been configured")
+    return engine
 
 
-def get_connection() -> sqlite3.Connection:
-    """Return a connection scoped to the current application context."""
+def get_session() -> Session:
+    """Return a scoped SQLModel session for the active request context."""
 
-    connection: sqlite3.Connection | None = getattr(g, _CONNECTION_KEY, None)
-    if connection is None:
-        database_path = _get_database_path()
-        database_path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(database_path)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        setattr(g, _CONNECTION_KEY, connection)
-    return connection
+    session: Session | None = getattr(g, _SESSION_KEY, None)
+    if session is None:
+        factory: Callable[[], Session] | None = current_app.extensions.get(
+            _SESSION_FACTORY_KEY
+        )
+        if factory is None:
+            raise RuntimeError("SQLModel session factory has not been configured")
+        session = factory()
+        setattr(g, _SESSION_KEY, session)
+    return session
 
 
 def close_db(_: Exception | None = None) -> None:
-    """Close the active database connection if one exists."""
+    """Close the active SQLModel session if one exists."""
 
-    connection: sqlite3.Connection | None = getattr(g, _CONNECTION_KEY, None)
-    if connection is not None:
-        connection.close()
-        delattr(g, _CONNECTION_KEY)
+    session: Session | None = getattr(g, _SESSION_KEY, None)
+    if session is not None:
+        session.close()
+        delattr(g, _SESSION_KEY)
+
+
+def _make_alembic_config() -> Config:
+    app_root = Path(current_app.root_path)
+    project_root = app_root.parent
+
+    config_path = project_root / "alembic.ini"
+    if not config_path.exists():
+        raise RuntimeError("Alembic configuration file not found")
+
+    cfg = Config(str(config_path))
+    cfg.set_main_option("script_location", str(project_root / "alembic"))
+    cfg.set_main_option("sqlalchemy.url", current_app.config["DATABASE_URL"])
+    return cfg
 
 
 def run_migrations() -> None:
-    """Create database tables if they do not already exist."""
+    """Apply pending Alembic migrations for the configured database."""
 
-    if current_app.config.get(_SCHEMA_VERSION_KEY):
+    if current_app.config.get(_MIGRATIONS_FLAG):
         return
 
-    def execute(sql: str, *, on: sqlite3.Connection) -> None:
-        on.executescript(sql)
-
-    ensure_schema(execute)
-    current_app.config[_SCHEMA_VERSION_KEY] = True
+    cfg = _make_alembic_config()
+    command.upgrade(cfg, "head")
+    current_app.config[_MIGRATIONS_FLAG] = True
 
 
-def ensure_schema(executor: Callable[[str, sqlite3.Connection], None] | None = None) -> None:
-    """Ensure that all required tables are present in the database."""
-
-    sql = """
-    CREATE TABLE IF NOT EXISTS sheets (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE,
-        row_count INTEGER NOT NULL,
-        col_count INTEGER NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
-        updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
-    );
-
-    CREATE TABLE IF NOT EXISTS sheet_cells (
-        sheet_id INTEGER NOT NULL,
-        row_index INTEGER NOT NULL,
-        col_index INTEGER NOT NULL,
-        value TEXT,
-        PRIMARY KEY (sheet_id, row_index, col_index),
-        FOREIGN KEY (sheet_id) REFERENCES sheets(id) ON DELETE CASCADE
-    );
-    """
-
-    connection = get_connection()
-    runner = executor or (lambda statement, *, on: on.executescript(statement))
-    runner(sql, on=connection)
-    connection.commit()
-
-
-__all__ = ["close_db", "ensure_schema", "get_connection", "run_migrations"]
+__all__ = [
+    "close_db",
+    "configure_engine",
+    "get_engine",
+    "get_session",
+    "run_migrations",
+]

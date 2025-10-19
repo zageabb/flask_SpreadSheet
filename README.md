@@ -19,7 +19,8 @@ Flask Spreadsheet is a lightweight web application that mimics a spreadsheet int
 
 ## Database migrations
 The project uses Alembic together with SQLModel/SQLAlchemy models for schema management.
-To apply migrations against your local database use:
+The Flask application automatically applies pending migrations during startup, but when deploying
+or running management workflows you can apply them explicitly with:
 ```bash
 export DATABASE_URL=sqlite:///$(pwd)/instance/spreadsheet.db
 alembic upgrade head
