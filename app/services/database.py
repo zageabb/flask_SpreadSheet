@@ -7,6 +7,7 @@ from typing import Callable
 from alembic import command
 from alembic.config import Config
 from flask import Flask, current_app, g
+import sqlalchemy as sa
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 from sqlmodel import Session, create_engine
@@ -94,7 +95,28 @@ def run_migrations() -> None:
         return
 
     cfg = _make_alembic_config()
-    command.upgrade(cfg, "head")
+    engine = get_engine()
+    inspector = sa.inspect(engine)
+
+    alembic_table_exists = inspector.has_table("alembic_version")
+
+    needs_stamp = False
+    if not alembic_table_exists:
+        from sqlmodel import SQLModel
+
+        existing_tables = set(inspector.get_table_names())
+        metadata_tables = {table.name for table in SQLModel.metadata.sorted_tables}
+        needs_stamp = bool(existing_tables & metadata_tables)
+
+    if needs_stamp:
+        stamp = getattr(command, "stamp", None)
+        if stamp is not None:
+            stamp(cfg, "head")
+        else:  # pragma: no cover - stub fallback for tests
+            command.upgrade(cfg, "head")
+    else:
+        command.upgrade(cfg, "head")
+
     current_app.config[_MIGRATIONS_FLAG] = True
 
 
