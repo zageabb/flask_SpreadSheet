@@ -143,6 +143,56 @@ a.action-btn {
   gap: 1rem;
 }
 
+.formula-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  background: var(--sheet-bg);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  .formula-bar {
+    border-color: var(--border-dark);
+    background: var(--sheet-bg-dark);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.4);
+  }
+}
+
+.formula-prefix {
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+
+.formula-cell-label {
+  min-width: 4rem;
+  font-weight: 600;
+  color: inherit;
+}
+
+.formula-input {
+  flex: 1;
+  border: none;
+  font-size: 1rem;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+}
+
+.formula-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.formula-input:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
 .sheet-wrapper {
   border: 1px solid var(--border-color);
   border-radius: 0.75rem;
