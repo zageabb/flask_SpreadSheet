@@ -17,6 +17,20 @@ Flask Spreadsheet is a lightweight web application that mimics a spreadsheet int
    flask --app app:create_app run
    ```
 
+## Database migrations
+The project uses Alembic together with SQLModel/SQLAlchemy models for schema management.
+To apply migrations against your local database use:
+```bash
+export DATABASE_URL=sqlite:///$(pwd)/instance/spreadsheet.db
+alembic upgrade head
+```
+The `DATABASE_URL` can point to any supported SQLAlchemy URL. When evolving the schema,
+create new revisions with:
+```bash
+alembic revision --autogenerate -m "describe change"
+alembic upgrade head
+```
+
 ## Environment Variables
 - `FLASK_APP=app:create_app` – required when using the Flask CLI to locate the factory.
 - `FLASK_ENV=development` – optional flag to enable development features such as auto-reload.

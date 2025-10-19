@@ -2,7 +2,6 @@ import io
 import json
 import os
 import secrets
-import sqlite3
 from pathlib import Path
 
 import pandas as pd
@@ -17,6 +16,7 @@ from flask import (
     send_file,
     session,
 )
+from sqlalchemy.exc import IntegrityError
 from werkzeug.utils import secure_filename
 from pydantic import ValidationError
 
@@ -104,7 +104,7 @@ def create_sheet():
 
     try:
         sheet_id = sheet_service.create_sheet(name, row_count, col_count, cells)
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         abort(409, description="A sheet with that name already exists")
 
     return (
@@ -130,7 +130,7 @@ def rename_sheet(sheet_id: int):
 
     try:
         sheet_service.rename_sheet(sheet_id, name)
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         abort(409, description="A sheet with that name already exists")
 
     return jsonify({"sheets": sheet_service.list_sheets(), "sheetId": sheet_id, "name": name}), 200

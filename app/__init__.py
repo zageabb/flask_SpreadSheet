@@ -5,9 +5,12 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
+from sqlalchemy.orm import sessionmaker
+from sqlmodel import Session as SQLModelSession, create_engine
 
 from .config import config_by_name, DevelopmentConfig
-from .services.database import close_db, init_db
+from .services.database import close_db, get_session, run_migrations
+from .services.sheets import SheetRepository, SheetService
 
 
 def register_error_handlers(app: Flask) -> None:
@@ -56,7 +59,18 @@ def create_app(config_name: str | None = None) -> Flask:
     os.makedirs(app.instance_path, exist_ok=True)
 
     database_name = app.config.get("DATABASE_NAME", "spreadsheet.db")
-    app.config["DATABASE_PATH"] = os.path.join(app.instance_path, database_name)
+    database_path = os.path.join(app.instance_path, database_name)
+    app.config["DATABASE_PATH"] = database_path
+    database_url = f"sqlite:///{database_path}"
+    app.config["DATABASE_URL"] = database_url
+
+    engine = create_engine(
+        database_url,
+        echo=app.config.get("SQL_ECHO", False),
+        connect_args={"check_same_thread": False},
+    )
+    session_factory = sessionmaker(bind=engine, class_=SQLModelSession, expire_on_commit=False)
+    app.extensions["sqlmodel"] = {"engine": engine, "session_factory": session_factory}
 
     logging_config = app.config.get("LOGGING_CONFIG")
     if logging_config:
@@ -78,7 +92,9 @@ def create_app(config_name: str | None = None) -> Flask:
     app.teardown_appcontext(close_db)
 
     with app.app_context():
-        init_db()
+        run_migrations()
+        service = SheetService(SheetRepository(get_session()))
+        service.ensure_default_sheet()
         close_db()
 
     register_error_handlers(app)

@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 from flask import abort
-
 from pydantic import ValidationError
+from sqlmodel import Session, select
 
+from ..models import Sheet, SheetCell
 from ..schemas import (
     CellUpdate,
     DataQueryParams,
@@ -18,7 +19,7 @@ from ..schemas import (
     RowPayload,
     SortDirection,
 )
-from .database import get_db
+from .database import get_session
 
 
 @dataclass(frozen=True)
@@ -38,55 +39,268 @@ COLUMN_RULES: Dict[int, ColumnRule] = {
 }
 
 
-def list_sheets() -> List[Dict[str, Any]]:
-    db = get_db()
-    rows = db.execute("SELECT id, name FROM sheets ORDER BY created_at, id").fetchall()
-    return [dict(row) for row in rows]
+class SheetRepository:
+    """Data access layer for sheet and sheet cell records."""
 
+    def __init__(self, session: Session) -> None:
+        self.session = session
 
-def fetch_sheet(sheet_id: int | None = None) -> Tuple[int, str, int, int, List[List[str]]]:
-    db = get_db()
-    if sheet_id is None:
-        sheet = db.execute(
-            "SELECT id, name, row_count, col_count FROM sheets ORDER BY id LIMIT 1"
-        ).fetchone()
-    else:
-        sheet = db.execute(
-            "SELECT id, name, row_count, col_count FROM sheets WHERE id = ?",
-            (sheet_id,),
-        ).fetchone()
-    if sheet is None:
-        abort(404, description="Sheet not found")
-    row_count = sheet["row_count"]
-    col_count = sheet["col_count"]
-    cursor = db.execute(
-        "SELECT row_index, col_index, value FROM sheet_cells WHERE sheet_id = ?",
-        (sheet["id"],),
-    )
-    cells = {(row, col): value for row, col, value in cursor.fetchall()}
-    data = [["" for _ in range(col_count)] for _ in range(row_count)]
-    for (row, col), value in cells.items():
-        if 0 <= row < row_count and 0 <= col < col_count:
-            data[row][col] = value
-    return sheet["id"], sheet["name"], row_count, col_count, data
+    def list_sheets(self) -> List[Dict[str, Any]]:
+        statement = select(Sheet).order_by(Sheet.created_at, Sheet.id)
+        return [
+            {"id": sheet.id, "name": sheet.name}
+            for sheet in self.session.exec(statement).all()
+        ]
 
+    def get_first_sheet(self) -> Sheet | None:
+        statement = select(Sheet).order_by(Sheet.id).limit(1)
+        return self.session.exec(statement).first()
 
-def _update_cell(sheet_id: int, row: int, col: int, value: str | None) -> None:
-    db = get_db()
-    if value is None or value == "":
-        db.execute(
-            "DELETE FROM sheet_cells WHERE sheet_id = ? AND row_index = ? AND col_index = ?",
-            (sheet_id, row, col),
+    def get_sheet(self, sheet_id: int) -> Sheet | None:
+        return self.session.get(Sheet, sheet_id)
+
+    def add_sheet(self, name: str, row_count: int, col_count: int) -> Sheet:
+        now = datetime.now(UTC)
+        sheet = Sheet(
+            name=name,
+            row_count=row_count,
+            col_count=col_count,
+            created_at=now,
+            updated_at=now,
         )
-    else:
-        db.execute(
-            """
-            INSERT INTO sheet_cells (sheet_id, row_index, col_index, value)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(sheet_id, row_index, col_index) DO UPDATE SET value=excluded.value
-            """,
-            (sheet_id, row, col, value),
+        self.session.add(sheet)
+        self.session.flush()
+        return sheet
+
+    def rename_sheet(self, sheet_id: int, name: str) -> Sheet | None:
+        sheet = self.get_sheet(sheet_id)
+        if sheet is None:
+            return None
+        sheet.name = name
+        sheet.updated_at = datetime.now(UTC)
+        return sheet
+
+    def update_dimensions(
+        self, sheet_id: int, row_count: int | None, col_count: int | None
+    ) -> Sheet | None:
+        sheet = self.get_sheet(sheet_id)
+        if sheet is None:
+            return None
+        changed = False
+        if isinstance(row_count, int) and row_count > 0:
+            sheet.row_count = row_count
+            changed = True
+        if isinstance(col_count, int) and col_count > 0:
+            sheet.col_count = col_count
+            changed = True
+        if changed:
+            sheet.updated_at = datetime.now(UTC)
+        return sheet
+
+    def get_cells(self, sheet_id: int) -> List[SheetCell]:
+        statement = select(SheetCell).where(SheetCell.sheet_id == sheet_id)
+        return list(self.session.exec(statement).all())
+
+    def upsert_cell(self, sheet_id: int, row: int, col: int, value: str | None) -> None:
+        cell = self.session.get(SheetCell, (sheet_id, row, col))
+        if value is None or value == "":
+            if cell is not None:
+                self.session.delete(cell)
+            return
+        if cell is None:
+            cell = SheetCell(
+                sheet_id=sheet_id,
+                row_index=row,
+                col_index=col,
+                value=value,
+            )
+            self.session.add(cell)
+        else:
+            cell.value = value
+
+    def has_sheets(self) -> bool:
+        statement = select(Sheet.id).limit(1)
+        return self.session.exec(statement).first() is not None
+
+
+class SheetService:
+    """Business logic for spreadsheet operations."""
+
+    def __init__(self, repository: SheetRepository) -> None:
+        self.repository = repository
+        self.session = repository.session
+
+    def list_sheets(self) -> List[Dict[str, Any]]:
+        return self.repository.list_sheets()
+
+    def _get_sheet_or_404(self, sheet_id: int | None) -> Sheet:
+        if sheet_id is None:
+            sheet = self.repository.get_first_sheet()
+        else:
+            sheet = self.repository.get_sheet(sheet_id)
+        if sheet is None:
+            abort(404, description="Sheet not found")
+        return sheet
+
+    def fetch_sheet(
+        self, sheet_id: int | None = None
+    ) -> Tuple[int, str, int, int, List[List[str]]]:
+        sheet = self._get_sheet_or_404(sheet_id)
+        cells = self.repository.get_cells(sheet.id)
+        data = [["" for _ in range(sheet.col_count)] for _ in range(sheet.row_count)]
+        for cell in cells:
+            if 0 <= cell.row_index < sheet.row_count and 0 <= cell.col_index < sheet.col_count:
+                data[cell.row_index][cell.col_index] = cell.value or ""
+        return sheet.id, sheet.name, sheet.row_count, sheet.col_count, data
+
+    def ensure_default_sheet(self) -> None:
+        if not self.repository.has_sheets():
+            self.repository.add_sheet("Sheet 1", 12, 8)
+            self.session.commit()
+
+    def update_dimensions(
+        self, sheet_id: int, row_count: int | None, col_count: int | None
+    ) -> None:
+        sheet = self.repository.update_dimensions(sheet_id, row_count, col_count)
+        if sheet is None:
+            abort(404, description="Sheet not found")
+        self.session.commit()
+
+    def _normalize_cell_value(self, column_index: int, value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            if value.strip() == "":
+                return None
+            candidate: Any = value
+        else:
+            candidate = value
+
+        rule = _get_column_rule(column_index)
+        if candidate is None:
+            if rule.allow_blank:
+                return None
+            abort(400, description=f"Column {column_index} cannot be blank")
+
+        if rule.type == "number":
+            try:
+                decimal_value = Decimal(str(candidate))
+            except (InvalidOperation, ValueError, TypeError):
+                abort(400, description=f"Column {column_index} requires a numeric value")
+            return _format_decimal(decimal_value)
+
+        if rule.type == "date":
+            try:
+                dt = datetime.fromisoformat(str(candidate))
+            except ValueError:
+                abort(400, description=f"Column {column_index} requires an ISO date value")
+            return dt.date().isoformat()
+
+        return str(candidate)
+
+    def apply_updates(
+        self,
+        sheet_id: int,
+        updates: Iterable[Dict[str, Any] | CellUpdate],
+        *,
+        validate: bool = False,
+    ) -> None:
+        for update in updates:
+            if isinstance(update, CellUpdate):
+                cell_update = update
+            else:
+                try:
+                    cell_update = CellUpdate.model_validate(update)
+                except ValidationError:  # pragma: no cover - ignore malformed updates silently
+                    continue
+            row = cell_update.row
+            col = cell_update.col
+            value = cell_update.value
+            normalized = (
+                self._normalize_cell_value(col, value) if validate else value
+            )
+            self.repository.upsert_cell(sheet_id, row, col, normalized)
+        self.session.commit()
+
+    def create_sheet(
+        self, name: str, row_count: int, col_count: int, cells: Iterable[Dict[str, Any]]
+    ) -> int:
+        sheet = self.repository.add_sheet(name, row_count, col_count)
+        for cell in cells:
+            try:
+                row = int(cell.get("row"))
+                col = int(cell.get("col"))
+            except (TypeError, ValueError):
+                continue
+            value = cell.get("value")
+            if value is None or value == "":
+                continue
+            self.repository.upsert_cell(sheet.id, row, col, str(value))
+        self.session.commit()
+        return sheet.id
+
+    def rename_sheet(self, sheet_id: int, name: str) -> int:
+        sheet = self.repository.rename_sheet(sheet_id, name)
+        if sheet is None:
+            abort(404, description="Sheet not found")
+        self.session.commit()
+        return sheet.id
+
+    def query_sheet_data(self, params: DataQueryParams) -> Dict[str, Any]:
+        sheet_id, sheet_name, row_count, col_count, data = self.fetch_sheet(
+            params.sheet_id
         )
+        rows: List[Tuple[int, List[str]]] = [
+            (index, list(row_values)) for index, row_values in enumerate(data)
+        ]
+
+        filtered = _filter_rows(rows, params.filters, col_count)
+        sorted_rows = _sort_rows(filtered, params.sort_column, params.sort_direction, col_count)
+
+        total_rows = len(sorted_rows)
+        if params.page_size == 0:
+            page_rows = sorted_rows
+            page_size = len(sorted_rows)
+        else:
+            start = (params.page - 1) * params.page_size
+            end = start + params.page_size
+            page_rows = sorted_rows[start:end]
+            page_size = params.page_size
+
+        serialized_rows = [
+            RowPayload(rowIndex=row_index, values=row_values).model_dump(by_alias=True)
+            for row_index, row_values in page_rows
+        ]
+
+        return {
+            "sheetId": sheet_id,
+            "sheetName": sheet_name,
+            "rowCount": row_count,
+            "colCount": col_count,
+            "page": params.page,
+            "pageSize": page_size,
+            "totalRows": total_rows,
+            "rows": serialized_rows,
+            "sheets": self.list_sheets(),
+        }
+
+    def write_sheet_data(self, request: DataWriteRequest) -> Dict[str, Any]:
+        if self.repository.get_sheet(request.sheet_id) is None:
+            abort(404, description="Sheet not found")
+
+        self.repository.update_dimensions(
+            request.sheet_id, request.row_count, request.col_count
+        )
+        self.apply_updates(request.sheet_id, request.updates, validate=True)
+
+        sheet_id, _, row_count, col_count, _ = self.fetch_sheet(request.sheet_id)
+        return {
+            "sheetId": sheet_id,
+            "rowCount": row_count,
+            "colCount": col_count,
+            "totalRows": row_count,
+            "updatedCells": len(request.updates),
+        }
 
 
 def _get_column_rule(column_index: int) -> ColumnRule:
@@ -98,124 +312,6 @@ def _format_decimal(value: Decimal) -> str:
     if "." in normalized:
         normalized = normalized.rstrip("0").rstrip(".")
     return normalized or "0"
-
-
-def _normalize_cell_value(column_index: int, value: Any) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        if value.strip() == "":
-            return None
-        candidate = value
-    else:
-        candidate = value
-
-    rule = _get_column_rule(column_index)
-    if candidate is None:
-        if rule.allow_blank:
-            return None
-        abort(400, description=f"Column {column_index} cannot be blank")
-
-    if rule.type == "number":
-        try:
-            decimal_value = Decimal(str(candidate))
-        except (InvalidOperation, ValueError, TypeError):
-            abort(400, description=f"Column {column_index} requires a numeric value")
-        return _format_decimal(decimal_value)
-
-    if rule.type == "date":
-        try:
-            dt = datetime.fromisoformat(str(candidate))
-        except ValueError:
-            abort(400, description=f"Column {column_index} requires an ISO date value")
-        return dt.date().isoformat()
-
-    return str(candidate)
-
-
-def apply_updates(
-    sheet_id: int,
-    updates: Iterable[Dict[str, Any] | CellUpdate],
-    *,
-    validate: bool = False,
-) -> None:
-    db = get_db()
-    for update in updates:
-        if isinstance(update, CellUpdate):
-            cell_update = update
-        else:
-            try:
-                cell_update = CellUpdate.model_validate(update)
-            except ValidationError:  # pragma: no cover - ignore malformed updates silently
-                continue
-        row = cell_update.row
-        col = cell_update.col
-        value = cell_update.value
-        normalized = _normalize_cell_value(col, value) if validate else value
-        _update_cell(sheet_id, row, col, normalized)
-    db.commit()
-
-
-def update_dimensions(sheet_id: int, row_count: int | None, col_count: int | None) -> None:
-    db = get_db()
-    now = datetime.utcnow().isoformat()
-    if isinstance(row_count, int) and row_count > 0:
-        db.execute(
-            "UPDATE sheets SET row_count = ?, updated_at = ? WHERE id = ?",
-            (row_count, now, sheet_id),
-        )
-    if isinstance(col_count, int) and col_count > 0:
-        db.execute(
-            "UPDATE sheets SET col_count = ?, updated_at = ? WHERE id = ?",
-            (col_count, now, sheet_id),
-        )
-
-
-def create_sheet(name: str, row_count: int, col_count: int, cells: Iterable[Dict[str, Any]]) -> int:
-    db = get_db()
-    now = datetime.utcnow().isoformat()
-    cursor = db.execute(
-        """
-        INSERT INTO sheets (name, row_count, col_count, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        (name, row_count, col_count, now, now),
-    )
-    sheet_id = cursor.lastrowid
-    normalized: List[Tuple[int, int, int, str]] = []
-    for cell in cells:
-        try:
-            row = int(cell.get("row"))
-            col = int(cell.get("col"))
-        except (TypeError, ValueError):
-            continue
-        value = cell.get("value")
-        if value is None or value == "":
-            continue
-        normalized.append((sheet_id, row, col, str(value)))
-    if normalized:
-        db.executemany(
-            """
-            INSERT INTO sheet_cells (sheet_id, row_index, col_index, value)
-            VALUES (?, ?, ?, ?)
-            """,
-            normalized,
-        )
-    db.commit()
-    return sheet_id
-
-
-def rename_sheet(sheet_id: int, name: str) -> int:
-    db = get_db()
-    now = datetime.utcnow().isoformat()
-    result = db.execute(
-        "UPDATE sheets SET name = ?, updated_at = ? WHERE id = ?",
-        (name, now, sheet_id),
-    )
-    if result.rowcount == 0:
-        abort(404, description="Sheet not found")
-    db.commit()
-    return sheet_id
 
 
 def _parse_filter_value(rule: ColumnRule, value: Any) -> Any:
@@ -353,57 +449,50 @@ def _sort_rows(
     )
 
 
+def list_sheets() -> List[Dict[str, Any]]:
+    return SheetService(SheetRepository(get_session())).list_sheets()
+
+
+def fetch_sheet(sheet_id: int | None = None) -> Tuple[int, str, int, int, List[List[str]]]:
+    return SheetService(SheetRepository(get_session())).fetch_sheet(sheet_id)
+
+
+def apply_updates(
+    sheet_id: int,
+    updates: Iterable[Dict[str, Any] | CellUpdate],
+    *,
+    validate: bool = False,
+) -> None:
+    SheetService(SheetRepository(get_session())).apply_updates(
+        sheet_id, updates, validate=validate
+    )
+
+
+def update_dimensions(sheet_id: int, row_count: int | None, col_count: int | None) -> None:
+    SheetService(SheetRepository(get_session())).update_dimensions(
+        sheet_id, row_count, col_count
+    )
+
+
+def create_sheet(
+    name: str, row_count: int, col_count: int, cells: Iterable[Dict[str, Any]]
+) -> int:
+    return SheetService(SheetRepository(get_session())).create_sheet(
+        name, row_count, col_count, cells
+    )
+
+
+def rename_sheet(sheet_id: int, name: str) -> int:
+    return SheetService(SheetRepository(get_session())).rename_sheet(sheet_id, name)
+
+
 def query_sheet_data(params: DataQueryParams) -> Dict[str, Any]:
-    sheet_id, sheet_name, row_count, col_count, data = fetch_sheet(params.sheet_id)
-    rows: List[Tuple[int, List[str]]] = [
-        (index, list(row_values)) for index, row_values in enumerate(data)
-    ]
-
-    filtered = _filter_rows(rows, params.filters, col_count)
-    sorted_rows = _sort_rows(filtered, params.sort_column, params.sort_direction, col_count)
-
-    total_rows = len(sorted_rows)
-    if params.page_size == 0:
-        page_rows = sorted_rows
-        page_size = len(sorted_rows)
-    else:
-        start = (params.page - 1) * params.page_size
-        end = start + params.page_size
-        page_rows = sorted_rows[start:end]
-        page_size = params.page_size
-
-    serialized_rows = [
-        RowPayload(rowIndex=row_index, values=row_values).model_dump(by_alias=True)
-        for row_index, row_values in page_rows
-    ]
-
-    return {
-        "sheetId": sheet_id,
-        "sheetName": sheet_name,
-        "rowCount": row_count,
-        "colCount": col_count,
-        "page": params.page,
-        "pageSize": page_size,
-        "totalRows": total_rows,
-        "rows": serialized_rows,
-        "sheets": list_sheets(),
-    }
+    return SheetService(SheetRepository(get_session())).query_sheet_data(params)
 
 
 def write_sheet_data(request: DataWriteRequest) -> Dict[str, Any]:
-    db = get_db()
-    sheet = db.execute("SELECT id FROM sheets WHERE id = ?", (request.sheet_id,)).fetchone()
-    if sheet is None:
-        abort(404, description="Sheet not found")
+    return SheetService(SheetRepository(get_session())).write_sheet_data(request)
 
-    update_dimensions(request.sheet_id, request.row_count, request.col_count)
-    apply_updates(request.sheet_id, request.updates, validate=True)
 
-    sheet_id, _, row_count, col_count, _ = fetch_sheet(request.sheet_id)
-    return {
-        "sheetId": sheet_id,
-        "rowCount": row_count,
-        "colCount": col_count,
-        "totalRows": row_count,
-        "updatedCells": len(request.updates),
-    }
+def ensure_default_sheet() -> None:
+    SheetService(SheetRepository(get_session())).ensure_default_sheet()
