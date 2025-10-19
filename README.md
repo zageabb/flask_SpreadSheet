@@ -54,6 +54,7 @@ Detailed request/response schemas live in [`docs/api-contracts.md`](docs/api-con
 - Supports adding/removing rows and columns, clearing sheets, duplicating sheets, and renaming through toolbar controls wired to API endpoints.
 - Handles CSV/XLSX import by presenting a preview modal, validating headers, and posting confirmed selections back through the service layer.
 - Provides CSV/XLSX export links that stream files without a full page reload.
+- Enables formula editing via the formula bar with support for arithmetic and comparison operators, cell ranges, and a curated set of spreadsheet functions.
 
 Accessibility, richer keyboard interactions, and collaborative features remain active roadmap items.
 
@@ -64,6 +65,7 @@ Authoritative references live under [`docs/`](docs/README.md):
 - [`data-lifecycle.md`](docs/data-lifecycle.md) – creation/editing/import/export flows and observability notes.
 - [`testing-strategy.md`](docs/testing-strategy.md) – suites, tooling, and future coverage goals.
 - [`operations.md`](docs/operations.md) – migrations, background jobs, caching, and deployment checklists.
+- [`formula-reference.md`](docs/formula-reference.md) – operators, functions, and usage tips for the formula engine.
 
 Keep these documents updated whenever new capabilities or operational requirements land so stakeholders have a single source of truth.
 
