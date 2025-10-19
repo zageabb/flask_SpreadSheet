@@ -199,18 +199,45 @@ function setCellRaw(row, col, rawValue) {
   state.cells.set(key, entry);
 }
 
-function evaluateExpression(expression) {
-  const sanitized = expression.replace(/\s+/g, '');
-  if (!/^[0-9+\-*/().]*$/.test(sanitized)) {
-    throw new Error('Invalid characters in formula');
+function getFormulaValue(row, col, visiting) {
+  const engine = window.FormulaEngine;
+  if (!engine || typeof engine.evaluateFormula !== 'function') {
+    return { kind: 'error', code: '#ERROR' };
   }
-  // eslint-disable-next-line no-new-func
-  const fn = new Function('"use strict"; return (' + expression + ');');
-  const result = fn();
-  if (typeof result === 'number' && Number.isFinite(result)) {
-    return String(result);
+  if (!Number.isInteger(row) || !Number.isInteger(col)) {
+    return engine.makeError('#REF!');
   }
-  throw new Error('Invalid formula result');
+  if (row < 0 || col < 0 || row >= state.rowCount || col >= state.colCount) {
+    return engine.makeError('#REF!');
+  }
+  const key = keyFor(row, col);
+  const entry = state.cells.get(key);
+  if (!entry) {
+    return engine.makeBlank();
+  }
+  if (isFormula(entry.raw)) {
+    if (visiting.has(key)) {
+      return engine.makeError('#CYCLE!');
+    }
+    const result = evaluateCell(row, col, visiting);
+    return engine.convertDisplayToValue(result);
+  }
+  return engine.convertRawToValue(entry.raw);
+}
+
+function getRangeValue(startRef, endRef, visiting) {
+  const engine = window.FormulaEngine;
+  const minRow = Math.min(startRef.row, endRef.row);
+  const maxRow = Math.max(startRef.row, endRef.row);
+  const minCol = Math.min(startRef.col, endRef.col);
+  const maxCol = Math.max(startRef.col, endRef.col);
+  const values = [];
+  for (let row = minRow; row <= maxRow; row += 1) {
+    for (let col = minCol; col <= maxCol; col += 1) {
+      values.push(getFormulaValue(row, col, visiting));
+    }
+  }
+  return engine ? engine.makeRange(values) : { kind: 'error', code: '#ERROR' };
 }
 
 function evaluateCell(row, col, visiting = new Set()) {
@@ -233,44 +260,18 @@ function evaluateCell(row, col, visiting = new Set()) {
   visiting.add(key);
 
   const formulaBody = raw.slice(1);
-  let sawCycle = false;
-  let sawError = false;
-  const replaced = formulaBody.replace(/([A-Za-z]+)(\d+)/g, (match, colLabel, rowNumber) => {
-    const refCol = columnToIndex(colLabel);
-    const refRow = Number.parseInt(rowNumber, 10) - 1;
-    if (Number.isNaN(refCol) || Number.isNaN(refRow)) {
-      sawError = true;
-      return '0';
-    }
-    const refValue = evaluateCell(refRow, refCol, visiting);
-    if (refValue === '#CYCLE!') {
-      sawCycle = true;
-      return '0';
-    }
-    if (refValue === '#ERROR') {
-      sawError = true;
-      return '0';
-    }
-    const numeric = Number.parseFloat(refValue);
-    if (Number.isFinite(numeric)) {
-      return String(numeric);
-    }
-    return '0';
-  });
-
-  if (sawCycle) {
-    entry.value = '#CYCLE!';
-    visiting.delete(key);
-    return entry.value;
-  }
-  if (sawError) {
-    entry.value = '#ERROR';
-    visiting.delete(key);
-    return entry.value;
-  }
-
   try {
-    entry.value = evaluateExpression(replaced);
+    const context = {
+      getCellValue: (refRow, refCol) => getFormulaValue(refRow, refCol, visiting),
+      getRange: (startRef, endRef) => getRangeValue(startRef, endRef, visiting),
+    };
+    const engine = window.FormulaEngine;
+    if (!engine || typeof engine.evaluateFormula !== 'function') {
+      entry.value = '#ERROR';
+    } else {
+      const evaluated = engine.evaluateFormula(formulaBody, context);
+      entry.value = engine.toDisplayString(evaluated);
+    }
   } catch (error) {
     entry.value = '#ERROR';
   }
