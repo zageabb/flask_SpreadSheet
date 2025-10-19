@@ -262,3 +262,40 @@ body {
     min-width: 72px;
   }
 }
+
+body.error-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 1rem;
+}
+
+body.error-page main {
+  max-width: 600px;
+  text-align: center;
+  background: var(--sheet-bg);
+  padding: 2.5rem;
+  border-radius: 1rem;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  body.error-page main {
+    background: var(--sheet-bg-dark);
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.3);
+  }
+}
+
+body.error-page h1 {
+  margin-bottom: 1rem;
+}
+
+body.error-page p {
+  margin: 0;
+  color: inherit;
+}
+
+body.error-page .action-btn {
+  display: inline-block;
+  margin-top: 1.5rem;
+}
