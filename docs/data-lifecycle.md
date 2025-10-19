@@ -1,5 +1,28 @@
 # Data Lifecycle
 
+## Sequence Overview
+```mermaid
+sequenceDiagram
+    participant UI as UI (AG Grid)
+    participant API as Flask Blueprint
+    participant SVC as SheetService
+    participant DB as SQLModel/DB
+
+    UI->>API: Fetch sheet (`GET /api/grid`)
+    API->>SVC: Build query params
+    SVC->>DB: Load sheet & cells
+    DB-->>SVC: Sheet data
+    SVC-->>API: Serialize via schemas
+    API-->>UI: JSON response
+
+    UI->>API: Submit edits (`POST /api/grid`)
+    API->>SVC: Validate `DataWriteRequest`
+    SVC->>DB: Upsert cells via repository
+    DB-->>SVC: Persisted state
+    SVC-->>API: `DataWriteResponse`
+    API-->>UI: Save summary
+```
+
 ## Creation
 1. The application factory (`create_app`) ensures a default sheet exists via `SheetService.ensure_default_sheet()` during start-up.
 2. Users create additional sheets via `POST /api/sheets`, which calls `SheetRepository.add_sheet()` and initialises dimensions. Optional seed cells are normalised and written by `SheetService.write_sheet_data()`.
