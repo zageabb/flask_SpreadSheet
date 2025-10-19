@@ -22,6 +22,8 @@ const importConfirmButton = document.getElementById('confirm-import');
 const importResetButton = document.getElementById('reset-import');
 const exportCsvLink = document.getElementById('download-csv');
 const exportXlsxLink = document.getElementById('download-xlsx');
+const formulaInput = document.getElementById('formula-input');
+const formulaCellLabel = document.getElementById('formula-cell-label');
 
 const state = {
   sheetId: initialSheetId,
@@ -30,6 +32,7 @@ const state = {
   cells: new Map(),
   sheets: Array.isArray(initialSheets) ? initialSheets : [],
   rowData: [],
+  activeCell: null,
 };
 
 let pendingImport = null;
@@ -68,6 +71,108 @@ function columnLabel(index) {
     num = Math.floor(num / 26) - 1;
   }
   return label;
+}
+
+function getCellLabel(row, col) {
+  if (!Number.isInteger(row) || row < 0 || !Number.isInteger(col) || col < 0) {
+    return '';
+  }
+  return `${columnLabel(col)}${row + 1}`;
+}
+
+function updateFormulaBar() {
+  if (!formulaCellLabel && !formulaInput) {
+    return;
+  }
+  if (
+    !state.activeCell
+    || !Number.isInteger(state.activeCell.row)
+    || state.activeCell.row < 0
+    || !Number.isInteger(state.activeCell.col)
+    || state.activeCell.col < 0
+  ) {
+    if (formulaCellLabel) {
+      formulaCellLabel.textContent = 'Select a cell';
+    }
+    if (formulaInput) {
+      formulaInput.value = '';
+      formulaInput.disabled = true;
+    }
+    return;
+  }
+
+  const { row, col } = state.activeCell;
+  if (formulaCellLabel) {
+    const label = getCellLabel(row, col);
+    formulaCellLabel.textContent = label || 'Select a cell';
+  }
+  if (formulaInput) {
+    const raw = getCellRaw(row, col);
+    formulaInput.disabled = false;
+    formulaInput.value = raw;
+  }
+}
+
+function setActiveCell(row, col, { focusGrid = false } = {}) {
+  if (!Number.isInteger(row) || row < 0 || !Number.isInteger(col) || col < 0) {
+    state.activeCell = null;
+    updateFormulaBar();
+    return;
+  }
+  state.activeCell = { row, col };
+  updateFormulaBar();
+  if (focusGrid && gridApi) {
+    gridApi.setFocusedCell(row, String(col));
+  }
+}
+
+function syncActiveCellFromGrid() {
+  if (!gridApi) {
+    return;
+  }
+  const focusedCell = gridApi.getFocusedCell();
+  if (!focusedCell || !Number.isInteger(focusedCell.rowIndex) || focusedCell.rowIndex < 0) {
+    return;
+  }
+  const column = focusedCell.column;
+  const colId = column && typeof column.getColId === 'function' ? column.getColId() : null;
+  const colIndex = Number.parseInt(colId ?? '', 10);
+  if (Number.isNaN(colIndex) || colIndex < 0) {
+    return;
+  }
+  setActiveCell(focusedCell.rowIndex, colIndex);
+}
+
+function commitFormulaInput(value) {
+  if (!state.activeCell) {
+    return;
+  }
+  const { row, col } = state.activeCell;
+  if (row >= state.rowCount || col >= state.colCount) {
+    return;
+  }
+  const nextValue = typeof value === 'string' ? value.trim() : '';
+  const previousRaw = getCellRaw(row, col);
+  if (previousRaw === nextValue) {
+    updateFormulaBar();
+    return;
+  }
+
+  setCellRaw(row, col, nextValue);
+  updateRowDataCell(row, col, nextValue);
+  recalculateAllCells();
+  refreshGridCells();
+  const rawToPersist = getCellRaw(row, col);
+  saveChanges({
+    updates: [
+      {
+        row,
+        col,
+        value: rawToPersist,
+      },
+    ],
+  });
+  updateFormulaBar();
 }
 
 function getCellEntry(row, col) {
@@ -449,6 +554,22 @@ function refreshGridCells() {
   gridApi.refreshCells({ force: true });
 }
 
+if (formulaInput) {
+  formulaInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const currentCell = state.activeCell ? { ...state.activeCell } : null;
+      commitFormulaInput(formulaInput.value);
+      if (currentCell) {
+        setActiveCell(currentCell.row, currentCell.col, { focusGrid: true });
+      }
+    }
+  });
+  formulaInput.addEventListener('blur', () => {
+    commitFormulaInput(formulaInput.value);
+  });
+}
+
 function handleValueSetter(params) {
   const rowIndex = params.data?.__rowIndex ?? params.node?.rowIndex;
   const colId = params.column.getColId();
@@ -549,6 +670,9 @@ function handleCellValueChanged(params) {
       },
     ],
   });
+  if (state.activeCell && state.activeCell.row === rowIndex && state.activeCell.col === colIndex) {
+    updateFormulaBar();
+  }
 }
 
 async function loadGrid(sheetId = state.sheetId) {
@@ -589,6 +713,11 @@ async function loadGrid(sheetId = state.sheetId) {
     recalculateAllCells();
     rebuildRowData();
     updateGridStructure();
+    if (state.rowCount > 0 && state.colCount > 0) {
+      setActiveCell(0, 0, { focusGrid: true });
+    } else {
+      setActiveCell(null, null);
+    }
     populateSheetSelect();
     updateExportLinks();
     setStatus('Ready', 'info');
@@ -952,6 +1081,15 @@ const gridOptions = {
   enterMovesDownAfterEdit: true,
   stopEditingWhenCellsLoseFocus: true,
   onCellValueChanged: handleCellValueChanged,
+  onCellClicked() {
+    syncActiveCellFromGrid();
+  },
+  onCellFocused() {
+    syncActiveCellFromGrid();
+  },
+  onSelectionChanged() {
+    syncActiveCellFromGrid();
+  },
   getRowId: (params) => (params.data ? `row-${params.data.__rowIndex}` : `row-${params.node?.rowIndex ?? 0}`),
   onGridReady(params) {
     gridApi = params.api;

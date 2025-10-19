@@ -32,6 +32,19 @@
 
     <main class="app-main">
       <section class="sheet-container">
+        <div class="formula-bar" role="group" aria-label="Formula bar">
+          <span class="formula-prefix" aria-hidden="true">fx</span>
+          <span id="formula-cell-label" class="formula-cell-label" aria-live="polite">Select a cell</span>
+          <input
+            id="formula-input"
+            class="formula-input"
+            type="text"
+            placeholder="Enter value or formula"
+            aria-label="Cell contents"
+            aria-describedby="formula-cell-label"
+            disabled
+          />
+        </div>
         <div class="sheet-wrapper">
           <div id="sheet" class="ag-theme-quartz" aria-label="Spreadsheet"></div>
         </div>

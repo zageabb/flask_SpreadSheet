@@ -183,6 +183,11 @@ class SheetService:
             candidate = value
 
         rule = _get_column_rule(column_index)
+        if isinstance(candidate, str) and candidate.startswith("="):
+            # Treat formula strings as literal values so they can be stored and
+            # recalculated on the client even when numeric validation is
+            # configured for the column.
+            return candidate
         if candidate is None:
             if rule.allow_blank:
                 return None
