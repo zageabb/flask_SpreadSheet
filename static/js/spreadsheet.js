@@ -8,6 +8,24 @@ const saveSheetButton = document.getElementById('save-sheet');
 const sheetSelect = document.getElementById('sheet-select');
 const cellTemplate = document.getElementById('cell-template');
 
+const CSRF_COOKIE_NAME = 'spreadsheet_csrftoken';
+
+function getCookie(name) {
+  const cookies = document.cookie.split(';');
+  for (let i = 0; i < cookies.length; i += 1) {
+    const cookie = cookies[i].trim();
+    if (cookie.startsWith(`${name}=`)) {
+      return cookie.slice(name.length + 1);
+    }
+  }
+  return '';
+}
+
+function csrfHeaders() {
+  const token = getCookie(CSRF_COOKIE_NAME);
+  return token ? { 'X-CSRFToken': token } : {};
+}
+
 const state = {
   sheetId: initialSheetId,
   rowCount: initialRowCount,
@@ -252,7 +270,7 @@ async function loadGrid(sheetId = state.sheetId) {
     if (typeof sheetId === 'number') {
       url.searchParams.set('sheetId', sheetId);
     }
-    const response = await fetch(url);
+    const response = await fetch(url, { credentials: 'same-origin' });
     if (!response.ok) {
       throw new Error('Failed to load grid');
     }
@@ -297,8 +315,10 @@ async function saveChanges({ updates = [], rowCount = null, colCount = null }) {
     }
     const response = await fetch('/api/grid', {
       method: 'POST',
+      credentials: 'same-origin',
       headers: {
         'Content-Type': 'application/json',
+        ...csrfHeaders(),
       },
       body: JSON.stringify(payload),
     });
@@ -462,8 +482,10 @@ renameButton.addEventListener('click', async () => {
     setStatus('Renaming…', 'info');
     const response = await fetch(`/api/sheets/${state.sheetId}`, {
       method: 'PATCH',
+      credentials: 'same-origin',
       headers: {
         'Content-Type': 'application/json',
+        ...csrfHeaders(),
       },
       body: JSON.stringify({ name }),
     });
@@ -509,8 +531,10 @@ saveSheetButton.addEventListener('click', async () => {
     setStatus('Saving copy…', 'info');
     const response = await fetch('/api/sheets', {
       method: 'POST',
+      credentials: 'same-origin',
       headers: {
         'Content-Type': 'application/json',
+        ...csrfHeaders(),
       },
       body: JSON.stringify({
         name,
