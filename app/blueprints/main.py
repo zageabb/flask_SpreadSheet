@@ -28,6 +28,7 @@ from ..schemas import ValidationError
 from ..services import sheets as sheet_service
 from ..services.database import get_session
 from ..services.excel import ExcelWorkbookService
+from ..services.calculation import CalculationService
 
 
 IMPORT_PREVIEW_KEY = "import_preview_id"
@@ -125,6 +126,13 @@ def sheet_formatting(sheet_id: int):
     safe_style = {key: value for key, value in style.items() if key in allowed}
     updated = sheet_service.format_cells(sheet_id, cells, safe_style, number_format if isinstance(number_format, str) else None)
     return jsonify({"updatedCells": updated, "style": safe_style, "numberFormat": number_format})
+
+
+@main_bp.route("/api/sheets/<int:sheet_id>/calculate", methods=["POST"])
+def calculate_sheet(sheet_id: int):
+    sheet_service.fetch_sheet(sheet_id)
+    result = CalculationService(get_session()).recalculate_sheet(sheet_id)
+    return jsonify({"calculatedCells": result.calculated, "errors": result.errors})
 
 
 @main_bp.route("/api/workbooks/import.xlsx", methods=["POST"])

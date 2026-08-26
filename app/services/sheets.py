@@ -21,6 +21,7 @@ from ..schemas import (
     ValidationError,
 )
 from .database import get_session
+from .calculation import CalculationService
 
 
 @dataclass(frozen=True)
@@ -386,6 +387,7 @@ class SheetService:
             request.sheet_id, request.row_count, request.col_count
         )
         self.apply_updates(request.sheet_id, request.updates, validate=True)
+        calculation = CalculationService(self.repository.session).recalculate_sheet(request.sheet_id)
 
         sheet_id, _, row_count, col_count, _ = self.fetch_sheet(request.sheet_id)
         return {
@@ -394,6 +396,8 @@ class SheetService:
             "colCount": col_count,
             "totalRows": row_count,
             "updatedCells": len(request.updates),
+            "calculatedCells": calculation.calculated,
+            "calculationErrors": calculation.errors,
         }
 
 

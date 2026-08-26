@@ -78,3 +78,7 @@ additional functions by extending the `functionHandlers` map.
 
 Refer to [`static/js/spreadsheet.js`](../static/js/spreadsheet.js) for the
 wiring between the grid UI and the formula engine.
+
+## Server calculation
+
+Writes also trigger the safe Python calculation service in `app/services/calculation.py`. It resolves same-sheet references and ranges recursively, recalculates dependent formulas, stores calculated values separately from formula text, and records spreadsheet error codes. `POST /api/sheets/<sheet_id>/calculate` can explicitly recalculate a sheet and returns its error map. The browser engine remains available for immediate display feedback.
