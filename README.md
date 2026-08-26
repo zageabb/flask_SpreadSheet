@@ -60,6 +60,7 @@ Detailed request/response schemas live in [`docs/api-contracts.md`](docs/api-con
 - Provides CSV/XLSX export links that stream files without a full page reload.
 - Preserves multi-sheet workbook structure, formulas, number formats and core cell styling through workbook-level XLSX import/export.
 - Provides a compact formatting toolbar for bold, italic, underline and common number formats.
+- Includes an Ollama-backed AI workspace that creates bounded, reviewable cell-change proposals; changes are applied and recalculated only after explicit approval.
 - Enables formula editing via the formula bar with support for arithmetic and comparison operators, cell ranges, and a curated set of spreadsheet functions.
 - Recalculates formulas authoritatively on the server, persists calculated values, follows dependency chains and records circular-reference or calculation errors.
 
@@ -86,6 +87,9 @@ Keep these documents updated whenever new capabilities or operational requiremen
 - `FLASK_ENV=development` – optional; enables auto-reload and debug tooling.
 - `FLASK_RUN_PORT` – optional port override for `flask run` (defaults to `5000`).
 - `DATABASE_URL` – optional SQLAlchemy connection string when not using the default SQLite database.
+- `OLLAMA_BASE_URL` – Ollama-compatible endpoint (defaults to `http://192.168.1.249:11434`).
+- `OLLAMA_MODEL` – spreadsheet assistant model (defaults to `qwen3:14b`).
+- `OLLAMA_TIMEOUT_SECONDS` – proposal request timeout.
 
 ## Testing
 Run the full suite with:

@@ -29,6 +29,7 @@ from ..services import sheets as sheet_service
 from ..services.database import get_session
 from ..services.excel import ExcelWorkbookService
 from ..services.calculation import CalculationService
+from ..services.ai import AIProposalService, AIServiceError, serialize_proposal
 
 
 IMPORT_PREVIEW_KEY = "import_preview_id"
@@ -133,6 +134,33 @@ def calculate_sheet(sheet_id: int):
     sheet_service.fetch_sheet(sheet_id)
     result = CalculationService(get_session()).recalculate_sheet(sheet_id)
     return jsonify({"calculatedCells": result.calculated, "errors": result.errors})
+
+
+@main_bp.route("/api/ai/proposals", methods=["POST"])
+def create_ai_proposal():
+    payload = request.get_json(silent=True) or {}
+    prompt = payload.get("prompt")
+    sheet_id = payload.get("sheetId")
+    if not isinstance(prompt, str) or not prompt.strip() or not isinstance(sheet_id, int):
+        abort(400, description="prompt and sheetId are required")
+    try:
+        proposal = AIProposalService(get_session()).propose(sheet_id, prompt.strip(), payload.get("selection"))
+    except AIServiceError as exc:
+        abort(503, description=str(exc))
+    return jsonify(serialize_proposal(proposal)), 201
+
+
+@main_bp.route("/api/ai/proposals/<proposal_id>/<decision>", methods=["POST"])
+def decide_ai_proposal(proposal_id: str, decision: str):
+    if decision not in {"approve", "reject"}:
+        abort(404, description="Unknown proposal decision")
+    try:
+        proposal = AIProposalService(get_session()).decide(proposal_id, decision == "approve")
+    except LookupError:
+        abort(404, description="Proposal not found")
+    except AIServiceError as exc:
+        abort(409, description=str(exc))
+    return jsonify(serialize_proposal(proposal))
 
 
 @main_bp.route("/api/workbooks/import.xlsx", methods=["POST"])

@@ -669,6 +669,13 @@ body {
 .ai-composer textarea { min-height: 56px; flex: 1; resize: none; border: 0; outline: 0; background: transparent; font: inherit; font-size: .73rem; }
 .ai-composer button { align-self: flex-end; width: 28px; height: 28px; border: 0; border-radius: 7px; background: #d8dce5; color: white; }
 .inspector-content .coming-soon { margin-top: .55rem; font-size: .64rem; text-transform: uppercase; letter-spacing: .06em; }
+.ai-proposal { width: 100%; box-sizing: border-box; padding: .8rem; border: 1px solid #d9d1fa; border-radius: 9px; background: #f5f2ff; color: #3f356b; text-align: left; font-size: .72rem; }
+.ai-proposal h3 { margin: 0 0 .35rem; font-size: .78rem; }
+.ai-proposal p { margin: .25rem 0; line-height: 1.45; }
+.proposal-actions { display: flex; gap: .4rem; margin-top: .65rem; }
+.proposal-actions button { padding: .4rem .6rem; border: 1px solid #c9c0ee; border-radius: 6px; background: white; color: #54449c; font: inherit; cursor: pointer; }
+.proposal-actions .approve { border-color: #9ed6bc; background: #eaf8f1; color: #21734c; }
+.ai-composer button:not(:disabled) { background: var(--cs-ai); cursor: pointer; }
 
 @media (max-width: 1050px) {
   .app-shell { grid-template-columns: 68px minmax(0, 1fr); }

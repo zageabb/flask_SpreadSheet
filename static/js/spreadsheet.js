@@ -35,6 +35,10 @@ const formatButtons = {
   underline: document.getElementById('format-underline'),
 };
 const numberFormatSelect = document.getElementById('number-format');
+const aiPrompt = document.getElementById('ai-prompt');
+const aiSend = document.getElementById('ai-send');
+const aiProposal = document.getElementById('ai-proposal');
+const aiSuggestions = document.querySelectorAll('.ai-suggestion');
 
 const state = {
   sheetId: initialSheetId,
@@ -147,6 +151,45 @@ Object.entries(formatButtons).forEach(([name, button]) => {
   });
 });
 if (numberFormatSelect) numberFormatSelect.addEventListener('change', () => applyActiveFormat({}, numberFormatSelect.value || null));
+
+function renderAIProposal(proposal) {
+  if (!aiProposal) return;
+  const changed = (proposal.operations || []).reduce((count, operation) => count + (operation.cells || []).length, 0);
+  aiProposal.innerHTML = '';
+  const title = document.createElement('h3'); title.textContent = proposal.summary;
+  const explanation = document.createElement('p'); explanation.textContent = proposal.explanation || 'Review the proposed workbook changes.';
+  const impact = document.createElement('p'); impact.textContent = `${changed} cell${changed === 1 ? '' : 's'} affected`;
+  const actions = document.createElement('div'); actions.className = 'proposal-actions';
+  const approve = document.createElement('button'); approve.type = 'button'; approve.className = 'approve'; approve.textContent = 'Approve changes';
+  const reject = document.createElement('button'); reject.type = 'button'; reject.textContent = 'Reject';
+  actions.append(approve, reject); aiProposal.append(title, explanation, impact, actions); aiProposal.classList.remove('hidden');
+  const decide = async (decision) => {
+    approve.disabled = true; reject.disabled = true;
+    const response = await fetch(`/api/ai/proposals/${proposal.id}/${decision}`, { method: 'POST' });
+    if (!response.ok) { setStatus('AI proposal decision failed', 'error'); approve.disabled = false; reject.disabled = false; return; }
+    aiProposal.classList.add('hidden');
+    if (decision === 'approve') { await loadGrid(state.sheetId); setStatus('AI changes approved and applied', 'success'); }
+    else setStatus('AI proposal rejected', 'info');
+  };
+  approve.addEventListener('click', () => decide('approve'));
+  reject.addEventListener('click', () => decide('reject'));
+}
+
+async function requestAIProposal(prompt) {
+  if (!prompt || !aiSend) return;
+  aiSend.disabled = true; setStatus('AI is preparing a proposal…', 'info');
+  const selection = state.activeCell ? { start: state.activeCell, end: state.activeCell } : {};
+  try {
+    const response = await fetch('/api/ai/proposals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sheetId: state.sheetId, prompt, selection }) });
+    if (!response.ok) throw new Error(await extractErrorMessage(response));
+    renderAIProposal(await response.json()); setStatus('AI proposal ready for review', 'success');
+  } catch (error) { setStatus(error.message || 'AI assistant is unavailable', 'error'); }
+  finally { aiSend.disabled = false; }
+}
+
+if (aiSend && aiPrompt) aiSend.addEventListener('click', () => requestAIProposal(aiPrompt.value.trim()));
+if (aiPrompt) aiPrompt.addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); requestAIProposal(aiPrompt.value.trim()); } });
+aiSuggestions.forEach((button) => button.addEventListener('click', () => { if (aiPrompt) aiPrompt.value = button.textContent; requestAIProposal(button.textContent); }));
 
 function isFormula(value) {
   return typeof value === 'string' && value.trim().startsWith('=');

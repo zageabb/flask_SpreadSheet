@@ -110,15 +110,16 @@
               <h2>Ask about your workbook</h2>
               <p>The AI assistant will use the active sheet and selected range as context. Formula suggestions and changes will require approval.</p>
               <div class="suggestion-list">
-                <button type="button" disabled>Explain the selected formula</button>
-                <button type="button" disabled>Clean and structure this data</button>
-                <button type="button" disabled>Create a summary sheet</button>
+                <button type="button" class="ai-suggestion">Explain the selected formula</button>
+                <button type="button" class="ai-suggestion">Clean and structure this data</button>
+                <button type="button" class="ai-suggestion">Create a summary sheet</button>
               </div>
+              <div id="ai-proposal" class="ai-proposal hidden" aria-live="polite"></div>
               <div class="ai-composer">
-                <textarea aria-label="Ask the spreadsheet assistant" placeholder="Ask about this workbook..." disabled></textarea>
-                <button type="button" disabled aria-label="Send request">&#8593;</button>
+                <textarea id="ai-prompt" aria-label="Ask the spreadsheet assistant" placeholder="Ask about this workbook..."></textarea>
+                <button id="ai-send" type="button" aria-label="Send request">&#8593;</button>
               </div>
-              <p class="coming-soon">AI proposals arrive in Phase 5</p>
+              <p class="coming-soon">Changes require your approval</p>
             </div>
           </aside>
         </main>

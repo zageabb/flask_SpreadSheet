@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from uuid import uuid4
 
 import sqlalchemy as sa
 from sqlmodel import Field, SQLModel
@@ -77,4 +78,19 @@ class SheetCell(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=_utcnow, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now(), server_onupdate=sa.func.now()))
 
 
-__all__ = ["Workbook", "Sheet", "SheetCell"]
+class AIProposal(SQLModel, table=True):
+    """Reviewable AI-authored workbook change set."""
+
+    __tablename__ = "ai_proposals"
+    id: str = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    sheet_id: int = Field(foreign_key="sheets.id", index=True)
+    user_prompt: str = Field(sa_column=sa.Column(sa.Text(), nullable=False))
+    summary: str
+    explanation: str = Field(default="", sa_column=sa.Column(sa.Text(), nullable=False))
+    operations_json: str = Field(sa_column=sa.Column(sa.Text(), nullable=False))
+    status: str = Field(default="pending", index=True)
+    created_at: datetime = Field(default_factory=_utcnow, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()))
+    decided_at: datetime | None = Field(default=None, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=True))
+
+
+__all__ = ["Workbook", "Sheet", "SheetCell", "AIProposal"]
