@@ -93,4 +93,17 @@ class AIProposal(SQLModel, table=True):
     decided_at: datetime | None = Field(default=None, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=True))
 
 
-__all__ = ["Workbook", "Sheet", "SheetCell", "AIProposal"]
+class DataSource(SQLModel, table=True):
+    """Refreshable file-backed data source attached to a sheet."""
+    __tablename__ = "data_sources"
+    id: str = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    sheet_id: int = Field(foreign_key="sheets.id", index=True)
+    name: str
+    kind: str
+    stored_path: str
+    options_json: str = Field(default="{}", sa_column=sa.Column(sa.Text(), nullable=False))
+    last_refreshed_at: datetime | None = Field(default=None, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=True))
+    created_at: datetime = Field(default_factory=_utcnow, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()))
+
+
+__all__ = ["Workbook", "Sheet", "SheetCell", "AIProposal", "DataSource"]

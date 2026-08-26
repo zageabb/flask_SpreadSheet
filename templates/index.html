@@ -19,7 +19,7 @@
         </div>
         <nav class="primary-nav">
           <button class="nav-item active" type="button" data-view="workbook"><span aria-hidden="true">&#9638;</span><span>Workbook</span></button>
-          <button class="nav-item" type="button" data-view="data"><span aria-hidden="true">&#8645;</span><span>Data</span><small>Soon</small></button>
+          <button class="nav-item" id="open-data-sources" type="button" data-view="data"><span aria-hidden="true">&#8645;</span><span>Data</span></button>
           <button class="nav-item" type="button" data-view="templates"><span aria-hidden="true">&#9633;</span><span>Templates</span><small>Soon</small></button>
           <button class="nav-item" type="button" data-view="history"><span aria-hidden="true">&#8634;</span><span>History</span><small>Soon</small></button>
           <button class="nav-item" type="button" data-view="activity"><span aria-hidden="true">&#9673;</span><span>Activity</span><small>Soon</small></button>
@@ -68,6 +68,7 @@
             <div class="toolbar-divider" aria-hidden="true"></div>
             <div class="toolbar-group">
               <button id="import-data" type="button" class="action-btn">Import</button>
+              <button id="connect-data" type="button" class="action-btn">Connect data</button>
               <a id="download-csv" class="action-btn secondary" href="#" role="button">CSV</a>
               <a id="download-xlsx" class="action-btn secondary" href="#" role="button">Sheet XLSX</a>
               <a id="download-workbook-xlsx" class="action-btn secondary" href="/api/workbooks/{{ workbook.id }}/export.xlsx" role="button">Workbook XLSX</a>
@@ -158,6 +159,24 @@
             <button type="button" class="action-btn secondary" id="reset-import">Choose Another File</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div id="data-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="data-modal-title">
+      <div class="modal-dialog compact-dialog">
+        <button type="button" class="modal-close" id="close-data-modal" aria-label="Close data source dialog">&times;</button>
+        <h2 id="data-modal-title">Connect refreshable data</h2>
+        <p class="modal-description">Attach a CSV file or a read-only SQLite table to the current sheet. Refresh replaces the sheet data from the saved source.</p>
+        <form id="data-source-form" class="modal-form" enctype="multipart/form-data">
+          <label class="form-field" for="data-source-kind">Source type</label>
+          <select id="data-source-kind" class="toolbar-select"><option value="csv">CSV file</option><option value="sqlite">SQLite database</option></select>
+          <label class="form-field" for="data-source-file">Source file</label>
+          <input id="data-source-file" type="file" accept=".csv,.sqlite,.db" required />
+          <label class="form-field" for="data-source-table">SQLite table (SQLite only)</label>
+          <input id="data-source-table" type="text" placeholder="supplier_quotes" />
+          <div id="data-source-feedback" class="import-feedback" role="status"></div>
+          <div class="modal-actions"><button type="submit" class="action-btn">Attach and refresh</button><button id="cancel-data-source" type="button" class="action-btn secondary">Cancel</button></div>
+        </form>
       </div>
     </div>
 

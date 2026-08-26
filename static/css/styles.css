@@ -676,6 +676,8 @@ body {
 .proposal-actions button { padding: .4rem .6rem; border: 1px solid #c9c0ee; border-radius: 6px; background: white; color: #54449c; font: inherit; cursor: pointer; }
 .proposal-actions .approve { border-color: #9ed6bc; background: #eaf8f1; color: #21734c; }
 .ai-composer button:not(:disabled) { background: var(--cs-ai); cursor: pointer; }
+.compact-dialog { max-width: 520px; }
+#data-source-file, #data-source-table { box-sizing: border-box; width: 100%; padding: .58rem; border: 1px solid var(--cs-border); border-radius: 8px; background: white; color: var(--cs-text); }
 
 @media (max-width: 1050px) {
   .app-shell { grid-template-columns: 68px minmax(0, 1fr); }

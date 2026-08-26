@@ -30,6 +30,7 @@ from ..services.database import get_session
 from ..services.excel import ExcelWorkbookService
 from ..services.calculation import CalculationService
 from ..services.ai import AIProposalService, AIServiceError, serialize_proposal
+from ..services.data import DataSourceService, DataServiceError, TransformationService, serialize_source
 
 
 IMPORT_PREVIEW_KEY = "import_preview_id"
@@ -161,6 +162,55 @@ def decide_ai_proposal(proposal_id: str, decision: str):
     except AIServiceError as exc:
         abort(409, description=str(exc))
     return jsonify(serialize_proposal(proposal))
+
+
+def _data_sources() -> DataSourceService:
+    return DataSourceService(get_session(), Path(current_app.instance_path) / "data_sources")
+
+
+@main_bp.route("/api/data-sources", methods=["GET", "POST"])
+def data_sources():
+    service = _data_sources()
+    if request.method == "GET":
+        return jsonify({"sources": [serialize_source(item) for item in service.list(request.args.get("sheetId", type=int))]})
+    uploaded = request.files.get("file")
+    sheet_id = request.form.get("sheetId", type=int)
+    kind = request.form.get("kind", "csv")
+    if uploaded is None or sheet_id is None:
+        abort(400, description="file and sheetId are required")
+    try:
+        options = json.loads(request.form.get("options", "{}"))
+        source = service.register_upload(sheet_id, uploaded.filename or "Data source", kind, uploaded.stream, options)
+    except (DataServiceError, json.JSONDecodeError) as exc:
+        abort(400, description=str(exc))
+    return jsonify(serialize_source(source)), 201
+
+
+@main_bp.route("/api/data-sources/<source_id>/refresh", methods=["POST"])
+def refresh_data_source(source_id: str):
+    try: rows = _data_sources().refresh(source_id)
+    except LookupError: abort(404, description="Data source not found")
+    except DataServiceError as exc: abort(400, description=str(exc))
+    return jsonify({"refreshedRows": rows})
+
+
+@main_bp.route("/api/sheets/<int:sheet_id>/transform", methods=["POST"])
+def transform_sheet(sheet_id: int):
+    payload = request.get_json(silent=True) or {}; operations = payload.get("operations")
+    if not isinstance(operations, list): abort(400, description="operations must be a list")
+    _, _, row_count, col_count, data = sheet_service.fetch_sheet(sheet_id)
+    headers = [value or _column_label(index) for index, value in enumerate(data[0] if data else [])]
+    rows = [{headers[col]: data[row][col] for col in range(min(col_count, len(headers)))} for row in range(1, row_count)]
+    try: transformed = TransformationService().apply(rows, operations)
+    except DataServiceError as exc: abort(400, description=str(exc))
+    if payload.get("apply") is True:
+        output_headers = list(transformed[0]) if transformed else headers
+        matrix = [output_headers] + [[row.get(column, "") for column in output_headers] for row in transformed]
+        existing_updates = [{"row": r, "col": c, "value": ""} for r in range(row_count) for c in range(col_count) if data[r][c]]
+        new_updates = existing_updates + [{"row": r, "col": c, "value": str(value)} for r, row in enumerate(matrix) for c, value in enumerate(row) if value not in (None, "")]
+        sheet_service.update_dimensions(sheet_id, max(1, len(matrix)), max(1, len(output_headers)))
+        sheet_service.apply_updates(sheet_id, new_updates); CalculationService(get_session()).recalculate_sheet(sheet_id)
+    return jsonify({"preview": transformed[:100], "totalRows": len(transformed), "applied": payload.get("apply") is True})
 
 
 @main_bp.route("/api/workbooks/import.xlsx", methods=["POST"])

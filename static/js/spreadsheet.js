@@ -39,6 +39,14 @@ const aiPrompt = document.getElementById('ai-prompt');
 const aiSend = document.getElementById('ai-send');
 const aiProposal = document.getElementById('ai-proposal');
 const aiSuggestions = document.querySelectorAll('.ai-suggestion');
+const dataModal = document.getElementById('data-modal');
+const dataSourceForm = document.getElementById('data-source-form');
+const dataSourceFile = document.getElementById('data-source-file');
+const dataSourceKind = document.getElementById('data-source-kind');
+const dataSourceTable = document.getElementById('data-source-table');
+const dataSourceFeedback = document.getElementById('data-source-feedback');
+const dataOpenButtons = [document.getElementById('connect-data'), document.getElementById('open-data-sources')].filter(Boolean);
+const dataCloseButtons = [document.getElementById('close-data-modal'), document.getElementById('cancel-data-source')].filter(Boolean);
 
 const state = {
   sheetId: initialSheetId,
@@ -190,6 +198,26 @@ async function requestAIProposal(prompt) {
 if (aiSend && aiPrompt) aiSend.addEventListener('click', () => requestAIProposal(aiPrompt.value.trim()));
 if (aiPrompt) aiPrompt.addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); requestAIProposal(aiPrompt.value.trim()); } });
 aiSuggestions.forEach((button) => button.addEventListener('click', () => { if (aiPrompt) aiPrompt.value = button.textContent; requestAIProposal(button.textContent); }));
+
+dataOpenButtons.forEach((button) => button.addEventListener('click', () => dataModal?.classList.remove('hidden')));
+dataCloseButtons.forEach((button) => button.addEventListener('click', () => dataModal?.classList.add('hidden')));
+if (dataModal) dataModal.addEventListener('click', (event) => { if (event.target === dataModal) dataModal.classList.add('hidden'); });
+if (dataSourceForm) dataSourceForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!dataSourceFile?.files?.length) return;
+  const kind = dataSourceKind?.value || 'csv';
+  const options = kind === 'sqlite' ? { table: dataSourceTable?.value?.trim() } : {};
+  const body = new FormData(); body.append('file', dataSourceFile.files[0]); body.append('sheetId', String(state.sheetId)); body.append('kind', kind); body.append('options', JSON.stringify(options));
+  if (dataSourceFeedback) dataSourceFeedback.textContent = 'Attaching source…';
+  try {
+    const created = await fetch('/api/data-sources', { method: 'POST', body });
+    if (!created.ok) throw new Error(await extractErrorMessage(created));
+    const source = await created.json();
+    const refreshed = await fetch(`/api/data-sources/${source.id}/refresh`, { method: 'POST' });
+    if (!refreshed.ok) throw new Error(await extractErrorMessage(refreshed));
+    const result = await refreshed.json(); dataModal?.classList.add('hidden'); await loadGrid(state.sheetId); setStatus(`Data refreshed: ${result.refreshedRows} rows`, 'success');
+  } catch (error) { if (dataSourceFeedback) { dataSourceFeedback.textContent = error.message || 'Unable to connect data'; dataSourceFeedback.className = 'import-feedback error'; } }
+});
 
 function isFormula(value) {
   return typeof value === 'string' && value.trim().startsWith('=');

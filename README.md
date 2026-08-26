@@ -61,6 +61,7 @@ Detailed request/response schemas live in [`docs/api-contracts.md`](docs/api-con
 - Preserves multi-sheet workbook structure, formulas, number formats and core cell styling through workbook-level XLSX import/export.
 - Provides a compact formatting toolbar for bold, italic, underline and common number formats.
 - Includes an Ollama-backed AI workspace that creates bounded, reviewable cell-change proposals; changes are applied and recalculated only after explicit approval.
+- Supports refreshable CSV and read-only SQLite data sources, plus previewable filter, sort, fill, rename, deduplicate and column-selection transformations.
 - Enables formula editing via the formula bar with support for arithmetic and comparison operators, cell ranges, and a curated set of spreadsheet functions.
 - Recalculates formulas authoritatively on the server, persists calculated values, follows dependency chains and records circular-reference or calculation errors.
 

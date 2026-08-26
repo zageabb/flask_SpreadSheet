@@ -1,5 +1,9 @@
 # Data Lifecycle
 
+## Refreshable sources and transformations
+
+Uploaded CSV and SQLite files can be registered as sheet data sources. Files are copied into the application instance data-source directory, SQLite is opened in read-only mode, table names are validated, and refreshes are capped at 100,000 rows. Refresh replaces the attached sheet and then triggers formula recalculation. The transformation API supports preview-before-apply workflows for filtering, sorting, filling blanks, renaming columns, removing duplicates and selecting columns.
+
 ## Sequence Overview
 ```mermaid
 sequenceDiagram
