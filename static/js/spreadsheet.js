@@ -24,6 +24,11 @@ const exportCsvLink = document.getElementById('download-csv');
 const exportXlsxLink = document.getElementById('download-xlsx');
 const formulaInput = document.getElementById('formula-input');
 const formulaCellLabel = document.getElementById('formula-cell-label');
+const sidebar = document.getElementById('app-sidebar');
+const sidebarToggle = document.getElementById('sidebar-toggle');
+const inspector = document.getElementById('workspace-inspector');
+const inspectorToggle = document.getElementById('toggle-inspector');
+const sidebarSheetList = document.getElementById('sidebar-sheet-list');
 
 const state = {
   sheetId: initialSheetId,
@@ -36,6 +41,39 @@ const state = {
 };
 
 let pendingImport = null;
+
+function renderSidebarSheets() {
+  if (!sidebarSheetList) return;
+  sidebarSheetList.innerHTML = '';
+  state.sheets.forEach((sheet) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `sidebar-sheet${Number(sheet.id) === Number(state.sheetId) ? ' active' : ''}`;
+    button.textContent = sheet.name;
+    button.addEventListener('click', () => {
+      if (sheetSelect) {
+        sheetSelect.value = String(sheet.id);
+        sheetSelect.dispatchEvent(new Event('change'));
+      }
+    });
+    sidebarSheetList.appendChild(button);
+  });
+}
+
+if (sidebarToggle && sidebar) {
+  sidebarToggle.addEventListener('click', () => {
+    const collapsed = sidebar.classList.toggle('collapsed');
+    sidebarToggle.setAttribute('aria-expanded', String(!collapsed));
+    sidebarToggle.setAttribute('aria-label', collapsed ? 'Expand navigation' : 'Collapse navigation');
+  });
+}
+
+if (inspectorToggle && inspector) {
+  inspectorToggle.addEventListener('click', () => {
+    const hidden = inspector.classList.toggle('collapsed');
+    inspectorToggle.setAttribute('aria-expanded', String(!hidden));
+  });
+}
 
 if (importConfirmButton) {
   importConfirmButton.disabled = true;
@@ -492,6 +530,7 @@ function renderImportPreview(preview) {
 
 function populateSheetSelect() {
   if (!sheetSelect) {
+    renderSidebarSheets();
     return;
   }
   const sheets = Array.isArray(state.sheets) ? state.sheets : [];
@@ -508,6 +547,7 @@ function populateSheetSelect() {
     }
     sheetSelect.appendChild(option);
   });
+  renderSidebarSheets();
 }
 
 function rebuildRowData() {

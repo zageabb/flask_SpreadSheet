@@ -10,28 +10,63 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}" />
   </head>
   <body>
-    <header class="app-header">
-      <div class="header-top">
-        <h1>Flask Spreadsheet</h1>
-        <div class="sheet-controls">
-          <label for="sheet-select" class="sr-only">Active sheet</label>
-          <select id="sheet-select" class="sheet-select" aria-label="Select sheet"></select>
-          <button id="rename-sheet" type="button" class="action-btn secondary">Rename</button>
-          <button id="save-sheet" type="button" class="action-btn secondary">Save Copy</button>
+    <div class="app-shell">
+      <aside class="sidebar" id="app-sidebar" aria-label="Application navigation">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">S</span>
+          <span class="brand-copy"><strong>Spreadsheet</strong><small>Intelligence workspace</small></span>
+          <button class="icon-btn sidebar-toggle" id="sidebar-toggle" type="button" aria-label="Collapse navigation" aria-expanded="true">&#9776;</button>
         </div>
-      </div>
-      <div class="header-actions">
-        <button id="add-row" type="button" class="action-btn">Add Row</button>
-        <button id="add-column" type="button" class="action-btn">Add Column</button>
-        <button id="reset-grid" type="button" class="action-btn secondary">Clear Sheet</button>
-        <button id="import-data" type="button" class="action-btn">Import Data</button>
-        <a id="download-csv" class="action-btn secondary" href="#" role="button">Export CSV</a>
-        <a id="download-xlsx" class="action-btn secondary" href="#" role="button">Export XLSX</a>
-      </div>
-    </header>
+        <nav class="primary-nav">
+          <button class="nav-item active" type="button" data-view="workbook"><span aria-hidden="true">&#9638;</span><span>Workbook</span></button>
+          <button class="nav-item" type="button" data-view="data"><span aria-hidden="true">&#8645;</span><span>Data</span><small>Soon</small></button>
+          <button class="nav-item" type="button" data-view="templates"><span aria-hidden="true">&#9633;</span><span>Templates</span><small>Soon</small></button>
+          <button class="nav-item" type="button" data-view="history"><span aria-hidden="true">&#8634;</span><span>History</span><small>Soon</small></button>
+          <button class="nav-item" type="button" data-view="activity"><span aria-hidden="true">&#9673;</span><span>Activity</span><small>Soon</small></button>
+        </nav>
+        <div class="sidebar-section">
+          <p class="sidebar-label">Sheets</p>
+          <div id="sidebar-sheet-list" class="sidebar-sheet-list" aria-live="polite"></div>
+        </div>
+        <div class="sidebar-footer">
+          <button class="nav-item" type="button" data-view="settings"><span aria-hidden="true">&#9881;</span><span>Settings</span></button>
+          <div class="workspace-status"><span class="status-dot"></span><span>Local workspace</span></div>
+        </div>
+      </aside>
 
-    <main class="app-main">
-      <section class="sheet-container">
+      <div class="workspace-shell">
+        <header class="app-header">
+          <div class="header-top">
+            <div class="title-block">
+              <p class="eyebrow">Workbook</p>
+              <h1 id="workspace-title">Untitled workbook</h1>
+            </div>
+            <div class="sheet-controls">
+              <span class="save-state"><span class="status-dot"></span>Saved locally</span>
+              <label for="sheet-select" class="sr-only">Active sheet</label>
+              <select id="sheet-select" class="sheet-select" aria-label="Select sheet"></select>
+              <button id="rename-sheet" type="button" class="action-btn secondary">Rename</button>
+              <button id="save-sheet" type="button" class="action-btn secondary">Duplicate</button>
+              <button id="toggle-inspector" type="button" class="action-btn ai-button" aria-expanded="true">AI workspace</button>
+            </div>
+          </div>
+          <div class="header-actions" role="toolbar" aria-label="Spreadsheet actions">
+            <div class="toolbar-group">
+              <button id="add-row" type="button" class="action-btn">+ Row</button>
+              <button id="add-column" type="button" class="action-btn">+ Column</button>
+              <button id="reset-grid" type="button" class="action-btn danger-subtle">Clear</button>
+            </div>
+            <div class="toolbar-divider" aria-hidden="true"></div>
+            <div class="toolbar-group">
+              <button id="import-data" type="button" class="action-btn">Import</button>
+              <a id="download-csv" class="action-btn secondary" href="#" role="button">CSV</a>
+              <a id="download-xlsx" class="action-btn secondary" href="#" role="button">Excel</a>
+            </div>
+          </div>
+        </header>
+
+        <main class="app-main">
+          <section class="sheet-container">
         <div class="formula-bar" role="group" aria-label="Formula bar">
           <span class="formula-prefix" aria-hidden="true">fx</span>
           <span id="formula-cell-label" class="formula-cell-label" aria-live="polite">Select a cell</span>
@@ -48,9 +83,37 @@
         <div class="sheet-wrapper">
           <div id="sheet" class="ag-theme-quartz" aria-label="Spreadsheet"></div>
         </div>
-        <div id="status" role="status" aria-live="polite" class="status">Ready</div>
-      </section>
-    </main>
+            <div class="workspace-statusbar">
+              <div id="status" role="status" aria-live="polite" class="status">Ready</div>
+              <span>Auto-calculate</span><span>100%</span>
+            </div>
+          </section>
+
+          <aside class="inspector" id="workspace-inspector" aria-label="Context panel">
+            <div class="inspector-tabs" role="tablist">
+              <button class="inspector-tab active" type="button" role="tab" aria-selected="true">AI</button>
+              <button class="inspector-tab" type="button" role="tab" aria-selected="false">Cell</button>
+              <button class="inspector-tab" type="button" role="tab" aria-selected="false">Format</button>
+            </div>
+            <div class="inspector-content">
+              <span class="ai-orb" aria-hidden="true">&#10022;</span>
+              <h2>Ask about your workbook</h2>
+              <p>The AI assistant will use the active sheet and selected range as context. Formula suggestions and changes will require approval.</p>
+              <div class="suggestion-list">
+                <button type="button" disabled>Explain the selected formula</button>
+                <button type="button" disabled>Clean and structure this data</button>
+                <button type="button" disabled>Create a summary sheet</button>
+              </div>
+              <div class="ai-composer">
+                <textarea aria-label="Ask the spreadsheet assistant" placeholder="Ask about this workbook..." disabled></textarea>
+                <button type="button" disabled aria-label="Send request">&#8593;</button>
+              </div>
+              <p class="coming-soon">AI proposals arrive in Phase 5</p>
+            </div>
+          </aside>
+        </main>
+      </div>
+    </div>
 
     <div id="import-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
       <div class="modal-dialog">
