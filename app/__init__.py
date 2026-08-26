@@ -53,6 +53,11 @@ def create_app(config_name: str | None = None) -> Flask:
     config_key = (config_name or os.getenv("FLASK_CONFIG", "development")).lower()
     config_object = config_by_name.get(config_key, DevelopmentConfig)
     app.config.from_object(config_object)
+    # Config classes are imported once, so read environment-backed values at
+    # factory time as well. This keeps tests and multi-instance deployments
+    # isolated even when DATABASE_NAME changes between app instances.
+    app.config["DATABASE_NAME"] = os.getenv("DATABASE_NAME", app.config.get("DATABASE_NAME", "spreadsheet.db"))
+    app.config["LOGGING_CONFIG"] = os.getenv("LOGGING_CONFIG", app.config.get("LOGGING_CONFIG", "logging.conf"))
 
     os.makedirs(app.instance_path, exist_ok=True)
 

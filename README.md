@@ -2,6 +2,8 @@
 
 Flask Spreadsheet is a lightweight web application that mimics a spreadsheet interface. It provides CRUD operations on cells and sheet metadata backed by SQLModel/SQLite, exposes a browser UI powered by AG Grid, and offers JSON APIs for integrating the grid with other systems.
 
+The application now uses a workbook-first domain model. Every sheet belongs to a workbook, and cells retain formula, calculated-value, type, number-format, style and error fields alongside the original raw value for backward-compatible clients.
+
 ## Quickstart
 1. Create and activate a virtual environment:
    ```bash
@@ -40,6 +42,8 @@ Future enhancements (background jobs, caching, collaborative editing) should int
 | `POST /api/grid` | Persist a batch of cell edits via a `DataWriteRequest`. |
 | `GET /api/sheets` | List available sheets for selection menus. |
 | `POST /api/sheets` | Create a new sheet with optional seed cells and explicit dimensions. |
+| `GET /api/workbooks` | List active workbooks. |
+| `POST /api/workbooks` | Create a workbook with an initial sheet. |
 | `PATCH /api/sheets/<sheet_id>` | Rename an existing sheet. |
 | `POST /api/import` | Upload CSV/XLSX files and return preview metadata. |
 | `POST /api/import/<preview_id>/confirm` | Commit a previously uploaded preview into a sheet. |

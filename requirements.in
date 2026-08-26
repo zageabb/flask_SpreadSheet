@@ -1,5 +1,6 @@
 alembic
 Flask
+python-dotenv
 openpyxl
 pandas
 sqlmodel

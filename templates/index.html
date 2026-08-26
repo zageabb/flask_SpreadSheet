@@ -39,7 +39,7 @@
           <div class="header-top">
             <div class="title-block">
               <p class="eyebrow">Workbook</p>
-              <h1 id="workspace-title">Untitled workbook</h1>
+              <h1 id="workspace-title">{{ workbook.name }}</h1>
             </div>
             <div class="sheet-controls">
               <span class="save-state"><span class="status-dot"></span>Saved locally</span>
@@ -155,6 +155,8 @@
       const initialColCount = {{ col_count }};
       const initialSheetId = {{ sheet_id }};
       const initialSheets = {{ sheets | tojson }};
+      const initialWorkbook = {{ workbook | tojson }};
+      const initialWorkbooks = {{ workbooks | tojson }};
     </script>
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@31.2.1/dist/ag-grid-community.min.noStyle.js" defer></script>
     <script src="{{ url_for('static', filename='js/formula_engine.js') }}" defer></script>

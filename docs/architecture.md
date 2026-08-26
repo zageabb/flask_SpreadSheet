@@ -1,8 +1,12 @@
 # System Architecture
 
+## Workbook Domain
+
+`Workbook` is the aggregate root for spreadsheet documents. `Sheet` records are scoped by `workbook_id`, with sheet-name uniqueness enforced within each workbook rather than across the application. `SheetCell` remains sparse and backward compatible through its `value` field while also storing formula, calculated value, detected type, formatting payload and calculation error separately. Migration `20260826_000002` upgrades existing installations into a default workbook without losing sheets or formulas.
+
 ## High-level Overview
 - **Flask application package (`app/`)**: Provides the application factory (`create_app`), configuration, and blueprint registration. Request handling is centralised through `app/blueprints/main.py`.
-- **Domain models (`app/models.py`)**: SQLModel tables (`Sheet`, `SheetCell`) map spreadsheet metadata and cell values into relational storage.
+- **Domain models (`app/models.py`)**: SQLModel tables (`Workbook`, `Sheet`, `SheetCell`) map workbook metadata, sheets, raw values, formulas, typed results and formatting into relational storage.
 - **Schemas (`app/schemas.py`)**: Pydantic models validate inbound/outbound payloads (e.g., `DataWriteRequest`, `SheetMetadata`) and surface user-friendly validation errors.
 - **Services (`app/services/`)**:
   - `database.py` exposes `get_session()` which yields SQLModel `Session` instances bound to the configured engine.

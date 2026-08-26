@@ -8,7 +8,7 @@ from typing import Any, Dict, Iterable, List, Sequence, Tuple
 from flask import abort
 from sqlmodel import Session, select
 
-from ..models import Sheet, SheetCell
+from ..models import Sheet, SheetCell, Workbook
 from ..schemas import (
     CellUpdate,
     DataQueryParams,
@@ -41,20 +41,47 @@ class SheetRepository:
     def commit(self) -> None:
         self.session.commit()
 
-    def list_sheets(self) -> List[Dict[str, Any]]:
-        query = select(Sheet).order_by(Sheet.created_at, Sheet.id)
+    def list_workbooks(self) -> List[Dict[str, Any]]:
+        query = select(Workbook).where(Workbook.is_archived == False).order_by(Workbook.updated_at.desc(), Workbook.id)  # noqa: E712
+        results = self.session.exec(query).all()
+        return [{"id": item.id, "name": item.name, "description": item.description} for item in results]
+
+    def get_first_workbook(self) -> Workbook | None:
+        return self.session.exec(select(Workbook).where(Workbook.is_archived == False).order_by(Workbook.id).limit(1)).first()  # noqa: E712
+
+    def get_workbook(self, workbook_id: int) -> Workbook | None:
+        return self.session.get(Workbook, workbook_id)
+
+    def add_workbook(self, name: str, description: str | None = None) -> Workbook:
+        workbook = Workbook(name=name, description=description)
+        self.session.add(workbook)
+        self.session.flush()
+        self.session.refresh(workbook)
+        return workbook
+
+    def list_sheets(self, workbook_id: int | None = None) -> List[Dict[str, Any]]:
+        query = select(Sheet)
+        if workbook_id is not None:
+            query = query.where(Sheet.workbook_id == workbook_id)
+        query = query.order_by(Sheet.created_at, Sheet.id)
         results = self.session.exec(query).all()
         return [{"id": sheet.id, "name": sheet.name} for sheet in results]
 
-    def get_first_sheet(self) -> Sheet | None:
-        query = select(Sheet).order_by(Sheet.id).limit(1)
+    def get_first_sheet(self, workbook_id: int | None = None) -> Sheet | None:
+        query = select(Sheet)
+        if workbook_id is not None:
+            query = query.where(Sheet.workbook_id == workbook_id)
+        query = query.order_by(Sheet.id).limit(1)
         return self.session.exec(query).first()
 
     def get_sheet(self, sheet_id: int) -> Sheet | None:
         return self.session.get(Sheet, sheet_id)
 
-    def add_sheet(self, name: str, row_count: int, col_count: int) -> Sheet:
-        sheet = Sheet(name=name, row_count=row_count, col_count=col_count)
+    def add_sheet(self, name: str, row_count: int, col_count: int, workbook_id: int | None = None) -> Sheet:
+        if workbook_id is None:
+            workbook = self.get_first_workbook() or self.add_workbook("My workbook")
+            workbook_id = workbook.id
+        sheet = Sheet(name=name, row_count=row_count, col_count=col_count, workbook_id=workbook_id)
         self.session.add(sheet)
         self.session.flush()
         self.session.refresh(sheet)
@@ -123,7 +150,13 @@ class SheetRepository:
             self.session.add(cell)
         else:
             existing.value = value
+            existing.formula = value if isinstance(value, str) and value.startswith("=") else None
+            existing.value_type = "formula" if existing.formula else _infer_value_type(value)
+            existing.updated_at = datetime.now(UTC)
             self.session.add(existing)
+        if existing is None:
+            cell.formula = value if isinstance(value, str) and value.startswith("=") else None
+            cell.value_type = "formula" if cell.formula else _infer_value_type(value)
         self.session.flush()
 
     def has_sheets(self) -> bool:
@@ -135,8 +168,17 @@ class SheetService:
     def __init__(self, repository: SheetRepository) -> None:
         self.repository = repository
 
-    def list_sheets(self) -> List[Dict[str, Any]]:
-        return self.repository.list_sheets()
+    def list_workbooks(self) -> List[Dict[str, Any]]:
+        return self.repository.list_workbooks()
+
+    def list_sheets(self, workbook_id: int | None = None) -> List[Dict[str, Any]]:
+        return self.repository.list_sheets(workbook_id)
+
+    def create_workbook(self, name: str, description: str | None = None) -> int:
+        workbook = self.repository.add_workbook(name, description)
+        self.repository.add_sheet("Sheet 1", 12, 8, workbook.id)
+        self.repository.commit()
+        return workbook.id
 
     def _get_sheet_or_404(self, sheet_id: int | None) -> Sheet:
         sheet = (
@@ -160,8 +202,11 @@ class SheetService:
         return sheet.id, sheet.name, sheet.row_count, sheet.col_count, data
 
     def ensure_default_sheet(self) -> None:
-        if not self.repository.has_sheets():
-            self.repository.add_sheet("Sheet 1", 12, 8)
+        workbook = self.repository.get_first_workbook()
+        if workbook is None:
+            workbook = self.repository.add_workbook("My workbook")
+        if self.repository.get_first_sheet(workbook.id) is None:
+            self.repository.add_sheet("Sheet 1", 12, 8, workbook.id)
             self.repository.commit()
 
     def update_dimensions(
@@ -234,9 +279,12 @@ class SheetService:
         self.repository.commit()
 
     def create_sheet(
-        self, name: str, row_count: int, col_count: int, cells: Iterable[Dict[str, Any]]
+        self, name: str, row_count: int, col_count: int, cells: Iterable[Dict[str, Any]], workbook_id: int | None = None
     ) -> int:
-        sheet = self.repository.add_sheet(name, row_count, col_count)
+        workbook = self.repository.get_workbook(workbook_id) if workbook_id is not None else self.repository.get_first_workbook()
+        if workbook is None:
+            abort(404, description="Workbook not found")
+        sheet = self.repository.add_sheet(name, row_count, col_count, workbook.id)
         for cell in cells:
             try:
                 row = int(cell.get("row"))
@@ -323,6 +371,26 @@ def _format_decimal(value: Decimal) -> str:
     if "." in normalized:
         normalized = normalized.rstrip("0").rstrip(".")
     return normalized or "0"
+
+
+def _infer_value_type(value: Any) -> str:
+    if value is None or value == "":
+        return "blank"
+    text = str(value).strip()
+    if text.startswith("="):
+        return "formula"
+    if text.casefold() in {"true", "false"}:
+        return "boolean"
+    try:
+        Decimal(text)
+        return "number"
+    except (InvalidOperation, ValueError, TypeError):
+        pass
+    try:
+        datetime.fromisoformat(text)
+        return "date"
+    except ValueError:
+        return "text"
 
 
 def _parse_filter_value(rule: ColumnRule, value: Any) -> Any:
@@ -460,8 +528,16 @@ def _sort_rows(
     )
 
 
-def list_sheets() -> List[Dict[str, Any]]:
-    return SheetService(SheetRepository(get_session())).list_sheets()
+def list_workbooks() -> List[Dict[str, Any]]:
+    return SheetService(SheetRepository(get_session())).list_workbooks()
+
+
+def list_sheets(workbook_id: int | None = None) -> List[Dict[str, Any]]:
+    return SheetService(SheetRepository(get_session())).list_sheets(workbook_id)
+
+
+def create_workbook(name: str, description: str | None = None) -> int:
+    return SheetService(SheetRepository(get_session())).create_workbook(name, description)
 
 
 def fetch_sheet(sheet_id: int | None = None) -> Tuple[int, str, int, int, List[List[str]]]:
@@ -486,10 +562,10 @@ def update_dimensions(sheet_id: int, row_count: int | None, col_count: int | Non
 
 
 def create_sheet(
-    name: str, row_count: int, col_count: int, cells: Iterable[Dict[str, Any]]
+    name: str, row_count: int, col_count: int, cells: Iterable[Dict[str, Any]], workbook_id: int | None = None
 ) -> int:
     return SheetService(SheetRepository(get_session())).create_sheet(
-        name, row_count, col_count, cells
+        name, row_count, col_count, cells, workbook_id
     )
 
 
@@ -515,6 +591,8 @@ __all__ = [
     "ensure_default_sheet",
     "fetch_sheet",
     "list_sheets",
+    "list_workbooks",
+    "create_workbook",
     "query_sheet_data",
     "rename_sheet",
     "update_dimensions",

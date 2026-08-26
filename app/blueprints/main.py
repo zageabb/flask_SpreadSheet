@@ -42,13 +42,34 @@ main_bp = Blueprint("main", __name__)
 def index():
     sheet_id, _, row_count, col_count, _ = sheet_service.fetch_sheet()
     sheets = sheet_service.list_sheets()
+    workbooks = sheet_service.list_workbooks()
     return render_template(
         "index.html",
         row_count=row_count,
         col_count=col_count,
         sheet_id=sheet_id,
         sheets=sheets,
+        workbooks=workbooks,
+        workbook=workbooks[0] if workbooks else {"id": None, "name": "Untitled workbook"},
     )
+
+
+@main_bp.route("/api/workbooks", methods=["GET"])
+def get_workbooks():
+    return jsonify({"workbooks": sheet_service.list_workbooks()})
+
+
+@main_bp.route("/api/workbooks", methods=["POST"])
+def create_workbook():
+    payload = request.get_json(silent=True) or {}
+    name = payload.get("name")
+    if not isinstance(name, str) or not name.strip():
+        abort(400, description="Workbook name is required")
+    description = payload.get("description")
+    if description is not None and not isinstance(description, str):
+        abort(400, description="Workbook description must be text")
+    workbook_id = sheet_service.create_workbook(name.strip(), description)
+    return jsonify({"workbookId": workbook_id, "workbooks": sheet_service.list_workbooks()}), 201
 
 
 @main_bp.route("/api/grid", methods=["GET"])
@@ -107,7 +128,13 @@ def create_sheet():
     cells = payload.get("cells", [])
 
     try:
-        sheet_id = sheet_service.create_sheet(name, row_count, col_count, cells)
+        workbook_id = payload.get("workbookId")
+        if workbook_id is not None:
+            try:
+                workbook_id = int(workbook_id)
+            except (TypeError, ValueError):
+                abort(400, description="Invalid workbookId")
+        sheet_id = sheet_service.create_sheet(name, row_count, col_count, cells, workbook_id)
     except sqlite3.IntegrityError:
         abort(409, description="A sheet with that name already exists")
 
