@@ -26,6 +26,8 @@ from werkzeug.utils import secure_filename
 from .. import schemas
 from ..schemas import ValidationError
 from ..services import sheets as sheet_service
+from ..services.database import get_session
+from ..services.excel import ExcelWorkbookService
 
 
 IMPORT_PREVIEW_KEY = "import_preview_id"
@@ -107,6 +109,43 @@ def save_grid():
 @main_bp.route("/api/sheets", methods=["GET"])
 def get_sheets():
     return jsonify({"sheets": sheet_service.list_sheets()})
+
+
+@main_bp.route("/api/sheets/<int:sheet_id>/formatting", methods=["GET", "PATCH"])
+def sheet_formatting(sheet_id: int):
+    if request.method == "GET":
+        return jsonify({"cells": sheet_service.get_cell_formats(sheet_id)})
+    payload = request.get_json(silent=True) or {}
+    cells = payload.get("cells")
+    style = payload.get("style", {})
+    number_format = payload.get("numberFormat")
+    if not isinstance(cells, list) or not isinstance(style, dict):
+        abort(400, description="cells and style are required")
+    allowed = {"bold", "italic", "underline", "fontColor", "fillColor", "horizontalAlign", "verticalAlign", "wrapText"}
+    safe_style = {key: value for key, value in style.items() if key in allowed}
+    updated = sheet_service.format_cells(sheet_id, cells, safe_style, number_format if isinstance(number_format, str) else None)
+    return jsonify({"updatedCells": updated, "style": safe_style, "numberFormat": number_format})
+
+
+@main_bp.route("/api/workbooks/import.xlsx", methods=["POST"])
+def import_excel_workbook():
+    uploaded = request.files.get("file")
+    if uploaded is None or not uploaded.filename or not uploaded.filename.lower().endswith(".xlsx"):
+        abort(400, description="An XLSX workbook is required")
+    try:
+        workbook_id = ExcelWorkbookService(get_session()).import_workbook(uploaded.stream, uploaded.filename)
+    except Exception as exc:
+        abort(400, description=f"Unable to import workbook: {exc}")
+    return jsonify({"workbookId": workbook_id, "workbooks": sheet_service.list_workbooks()}), 201
+
+
+@main_bp.route("/api/workbooks/<int:workbook_id>/export.xlsx", methods=["GET"])
+def export_excel_workbook(workbook_id: int):
+    try:
+        name, output = ExcelWorkbookService(get_session()).export_workbook(workbook_id)
+    except LookupError:
+        abort(404, description="Workbook not found")
+    return send_file(output, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", as_attachment=True, download_name=_safe_download_name(name, "xlsx"))
 
 
 @main_bp.route("/api/sheets", methods=["POST"])

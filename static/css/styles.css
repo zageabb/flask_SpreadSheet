@@ -638,6 +638,8 @@ body {
 .action-btn.secondary { background: #f7f8fb; color: #3a4659; }
 .action-btn.danger-subtle { color: #b84d5a; }
 .action-btn.ai-button { border-color: #d9d1fa; background: #f1edff; color: #624bc2; }
+.format-btn { min-width: 31px; padding-inline: .5rem; }
+.toolbar-select { padding: .45rem .55rem; border: 1px solid var(--cs-border); border-radius: 7px; background: white; color: #3a4659; font: inherit; font-size: .73rem; }
 
 .app-main { display: grid; grid-template-columns: minmax(0, 1fr) 310px; height: calc(100vh - 124px); padding: 0; }
 .sheet-container { min-width: 0; gap: 0; background: #fff; }

@@ -51,6 +51,15 @@
             </div>
           </div>
           <div class="header-actions" role="toolbar" aria-label="Spreadsheet actions">
+            <div class="toolbar-group format-group" aria-label="Cell formatting">
+              <button id="format-bold" type="button" class="action-btn format-btn" title="Bold"><strong>B</strong></button>
+              <button id="format-italic" type="button" class="action-btn format-btn" title="Italic"><em>I</em></button>
+              <button id="format-underline" type="button" class="action-btn format-btn" title="Underline"><u>U</u></button>
+              <select id="number-format" class="toolbar-select" aria-label="Number format">
+                <option value="">General</option><option value="0.00">Number</option><option value="£#,##0.00">Currency</option><option value="0.00%">Percentage</option><option value="dd/mm/yyyy">Date</option>
+              </select>
+            </div>
+            <div class="toolbar-divider" aria-hidden="true"></div>
             <div class="toolbar-group">
               <button id="add-row" type="button" class="action-btn">+ Row</button>
               <button id="add-column" type="button" class="action-btn">+ Column</button>
@@ -60,7 +69,8 @@
             <div class="toolbar-group">
               <button id="import-data" type="button" class="action-btn">Import</button>
               <a id="download-csv" class="action-btn secondary" href="#" role="button">CSV</a>
-              <a id="download-xlsx" class="action-btn secondary" href="#" role="button">Excel</a>
+              <a id="download-xlsx" class="action-btn secondary" href="#" role="button">Sheet XLSX</a>
+              <a id="download-workbook-xlsx" class="action-btn secondary" href="/api/workbooks/{{ workbook.id }}/export.xlsx" role="button">Workbook XLSX</a>
             </div>
           </div>
         </header>

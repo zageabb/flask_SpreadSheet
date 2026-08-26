@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
+import json
 
 from flask import abort
 from sqlmodel import Session, select
@@ -131,6 +132,22 @@ class SheetRepository:
         )
         return list(self.session.exec(query))
 
+    def get_cell_formats(self, sheet_id: int) -> List[Dict[str, Any]]:
+        return [
+            {"row": cell.row_index, "col": cell.col_index, "numberFormat": cell.number_format, "style": _decode_style(cell.style_json)}
+            for cell in self.get_cells(sheet_id)
+            if cell.number_format or cell.style_json not in (None, "", "{}")
+        ]
+
+    def update_cell_format(self, sheet_id: int, row: int, col: int, style: Dict[str, Any], number_format: str | None) -> None:
+        existing = self.session.get(SheetCell, (sheet_id, row, col))
+        if existing is None:
+            existing = SheetCell(sheet_id=sheet_id, row_index=row, col_index=col, value=None)
+        existing.style_json = json.dumps(style, separators=(",", ":"))
+        existing.number_format = number_format
+        existing.updated_at = datetime.now(UTC)
+        self.session.add(existing)
+
     def upsert_cell(self, sheet_id: int, row: int, col: int, value: str | None) -> None:
         key = (sheet_id, row, col)
         existing = self.session.get(SheetCell, key)
@@ -179,6 +196,24 @@ class SheetService:
         self.repository.add_sheet("Sheet 1", 12, 8, workbook.id)
         self.repository.commit()
         return workbook.id
+
+    def get_cell_formats(self, sheet_id: int) -> List[Dict[str, Any]]:
+        if self.repository.get_sheet(sheet_id) is None:
+            abort(404, description="Sheet not found")
+        return self.repository.get_cell_formats(sheet_id)
+
+    def format_cells(self, sheet_id: int, cells: Iterable[Dict[str, Any]], style: Dict[str, Any], number_format: str | None = None) -> int:
+        if self.repository.get_sheet(sheet_id) is None:
+            abort(404, description="Sheet not found")
+        count = 0
+        for address in cells:
+            row, col = address.get("row"), address.get("col")
+            if not isinstance(row, int) or not isinstance(col, int) or row < 0 or col < 0:
+                continue
+            self.repository.update_cell_format(sheet_id, row, col, style, number_format)
+            count += 1
+        self.repository.commit()
+        return count
 
     def _get_sheet_or_404(self, sheet_id: int | None) -> Sheet:
         sheet = (
@@ -393,6 +428,14 @@ def _infer_value_type(value: Any) -> str:
         return "text"
 
 
+def _decode_style(raw: str | None) -> Dict[str, Any]:
+    try:
+        parsed = json.loads(raw or "{}")
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
 def _parse_filter_value(rule: ColumnRule, value: Any) -> Any:
     if value is None:
         return None
@@ -540,6 +583,14 @@ def create_workbook(name: str, description: str | None = None) -> int:
     return SheetService(SheetRepository(get_session())).create_workbook(name, description)
 
 
+def get_cell_formats(sheet_id: int) -> List[Dict[str, Any]]:
+    return SheetService(SheetRepository(get_session())).get_cell_formats(sheet_id)
+
+
+def format_cells(sheet_id: int, cells: Iterable[Dict[str, Any]], style: Dict[str, Any], number_format: str | None = None) -> int:
+    return SheetService(SheetRepository(get_session())).format_cells(sheet_id, cells, style, number_format)
+
+
 def fetch_sheet(sheet_id: int | None = None) -> Tuple[int, str, int, int, List[List[str]]]:
     return SheetService(SheetRepository(get_session())).fetch_sheet(sheet_id)
 
@@ -593,6 +644,8 @@ __all__ = [
     "list_sheets",
     "list_workbooks",
     "create_workbook",
+    "get_cell_formats",
+    "format_cells",
     "query_sheet_data",
     "rename_sheet",
     "update_dimensions",

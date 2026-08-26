@@ -29,12 +29,19 @@ const sidebarToggle = document.getElementById('sidebar-toggle');
 const inspector = document.getElementById('workspace-inspector');
 const inspectorToggle = document.getElementById('toggle-inspector');
 const sidebarSheetList = document.getElementById('sidebar-sheet-list');
+const formatButtons = {
+  bold: document.getElementById('format-bold'),
+  italic: document.getElementById('format-italic'),
+  underline: document.getElementById('format-underline'),
+};
+const numberFormatSelect = document.getElementById('number-format');
 
 const state = {
   sheetId: initialSheetId,
   rowCount: initialRowCount,
   colCount: initialColCount,
   cells: new Map(),
+  formats: new Map(),
   sheets: Array.isArray(initialSheets) ? initialSheets : [],
   rowData: [],
   activeCell: null,
@@ -82,6 +89,64 @@ if (importConfirmButton) {
 function keyFor(row, col) {
   return `${row}:${col}`;
 }
+
+function agCellStyle(row, col) {
+  const format = state.formats.get(keyFor(row, col)) || {};
+  const style = format.style || {};
+  return {
+    fontWeight: style.bold ? '700' : null,
+    fontStyle: style.italic ? 'italic' : null,
+    textDecoration: style.underline ? 'underline' : null,
+    color: style.fontColor ? `#${String(style.fontColor).replace(/^#|^FF/i, '')}` : null,
+    backgroundColor: style.fillColor ? `#${String(style.fillColor).replace(/^#|^FF/i, '')}` : null,
+    textAlign: style.horizontalAlign || null,
+    whiteSpace: style.wrapText ? 'normal' : null,
+  };
+}
+
+async function loadCellFormats() {
+  state.formats.clear();
+  try {
+    const response = await fetch(`/api/sheets/${state.sheetId}/formatting`);
+    if (!response.ok) return;
+    const payload = await response.json();
+    (payload.cells || []).forEach((item) => state.formats.set(keyFor(item.row, item.col), item));
+  } catch (error) {
+    console.warn('Unable to load cell formatting', error);
+  }
+}
+
+async function applyActiveFormat(style, numberFormat = undefined) {
+  if (!state.activeCell) {
+    setStatus('Select a cell to format', 'error');
+    return;
+  }
+  const { row, col } = state.activeCell;
+  const current = state.formats.get(keyFor(row, col)) || { style: {}, numberFormat: null };
+  const nextStyle = { ...current.style, ...style };
+  const nextNumberFormat = numberFormat === undefined ? current.numberFormat : numberFormat;
+  const response = await fetch(`/api/sheets/${state.sheetId}/formatting`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cells: [{ row, col }], style: nextStyle, numberFormat: nextNumberFormat }),
+  });
+  if (!response.ok) {
+    setStatus('Formatting could not be saved', 'error');
+    return;
+  }
+  state.formats.set(keyFor(row, col), { row, col, style: nextStyle, numberFormat: nextNumberFormat });
+  refreshGridCells();
+  setStatus('Formatting saved', 'success');
+}
+
+Object.entries(formatButtons).forEach(([name, button]) => {
+  if (!button) return;
+  button.addEventListener('click', () => {
+    if (!state.activeCell) return applyActiveFormat({});
+    const current = state.formats.get(keyFor(state.activeCell.row, state.activeCell.col));
+    applyActiveFormat({ [name]: !Boolean(current?.style?.[name]) });
+  });
+});
+if (numberFormatSelect) numberFormatSelect.addEventListener('change', () => applyActiveFormat({}, numberFormatSelect.value || null));
 
 function isFormula(value) {
   return typeof value === 'string' && value.trim().startsWith('=');
@@ -674,6 +739,10 @@ function createColumnDefs() {
         }
         return isFormula(getCellRaw(rowIndex, colIndex)) ? 'formula-cell' : '';
       },
+      cellStyle(params) {
+        const rowIndex = params.data?.__rowIndex ?? params.node?.rowIndex;
+        return Number.isInteger(rowIndex) ? agCellStyle(rowIndex, colIndex) : null;
+      },
     });
   }
 
@@ -737,6 +806,7 @@ async function loadGrid(sheetId = state.sheetId) {
       state.sheets = data.sheets;
     }
     state.cells.clear();
+    await loadCellFormats();
     if (Array.isArray(data.rows)) {
       data.rows.forEach((row) => {
         const rowIndex = Number.parseInt(row.rowIndex ?? row.rowindex ?? row.row_index, 10);

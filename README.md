@@ -58,6 +58,8 @@ Detailed request/response schemas live in [`docs/api-contracts.md`](docs/api-con
 - Supports adding/removing rows and columns, clearing sheets, duplicating sheets, and renaming through toolbar controls wired to API endpoints.
 - Handles CSV/XLSX import by presenting a preview modal, validating headers, and posting confirmed selections back through the service layer.
 - Provides CSV/XLSX export links that stream files without a full page reload.
+- Preserves multi-sheet workbook structure, formulas, number formats and core cell styling through workbook-level XLSX import/export.
+- Provides a compact formatting toolbar for bold, italic, underline and common number formats.
 - Enables formula editing via the formula bar with support for arithmetic and comparison operators, cell ranges, and a curated set of spreadsheet functions.
 
 Accessibility, richer keyboard interactions, and collaborative features remain active roadmap items.
