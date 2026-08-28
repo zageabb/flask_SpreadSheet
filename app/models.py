@@ -1,7 +1,7 @@
 """SQLModel definitions for the spreadsheet domain objects."""
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import sqlalchemy as sa
@@ -11,7 +11,7 @@ from sqlmodel import Field, SQLModel
 def _utcnow() -> datetime:
     """Return the current UTC time with timezone information."""
 
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 class Workbook(SQLModel, table=True):

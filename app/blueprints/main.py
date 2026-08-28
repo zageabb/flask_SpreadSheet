@@ -582,10 +582,9 @@ def get_data():
     raw_filters = request.args.get("filters")
     filters = _parse_query_filters(raw_filters)
     payload = {
-        "sheetId": request.args.get("sheetId"),
-        "page": request.args.get("page"),
-        "pageSize": request.args.get("pageSize"),
-        "sortColumn": request.args.get("sortColumn"),
+        key: request.args[key]
+        for key in ("sheetId", "page", "pageSize", "sortColumn")
+        if key in request.args
     }
     sort_dir = request.args.get("sortDir")
     if sort_dir is not None:

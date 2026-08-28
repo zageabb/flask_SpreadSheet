@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
 import json
@@ -94,7 +94,7 @@ class SheetRepository:
         if sheet is None:
             return None
         sheet.name = name
-        sheet.updated_at = datetime.now(UTC)
+        sheet.updated_at = datetime.now(timezone.utc)
         self.session.add(sheet)
         self.session.flush()
         self.session.refresh(sheet)
@@ -119,7 +119,7 @@ class SheetRepository:
             return sheet
         sheet.row_count = new_row_count
         sheet.col_count = new_col_count
-        sheet.updated_at = datetime.now(UTC)
+        sheet.updated_at = datetime.now(timezone.utc)
         self.session.add(sheet)
         self.session.flush()
         self.session.refresh(sheet)
@@ -146,7 +146,7 @@ class SheetRepository:
             existing = SheetCell(sheet_id=sheet_id, row_index=row, col_index=col, value=None)
         existing.style_json = json.dumps(style, separators=(",", ":"))
         existing.number_format = number_format
-        existing.updated_at = datetime.now(UTC)
+        existing.updated_at = datetime.now(timezone.utc)
         self.session.add(existing)
 
     def upsert_cell(self, sheet_id: int, row: int, col: int, value: str | None) -> None:
@@ -170,7 +170,7 @@ class SheetRepository:
             existing.value = value
             existing.formula = value if isinstance(value, str) and value.startswith("=") else None
             existing.value_type = "formula" if existing.formula else _infer_value_type(value)
-            existing.updated_at = datetime.now(UTC)
+            existing.updated_at = datetime.now(timezone.utc)
             self.session.add(existing)
         if existing is None:
             cell.formula = value if isinstance(value, str) and value.startswith("=") else None

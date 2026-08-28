@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import csv
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
@@ -57,7 +57,7 @@ class DataSourceService:
                 if value not in (None, ""): updates.append({"row": r, "col": c, "value": str(value)})
         service.update_dimensions(source.sheet_id, max(1, len(matrix)), max(1, max((len(row) for row in matrix), default=1)))
         service.apply_updates(source.sheet_id, updates, validate=False); CalculationService(self.session).recalculate_sheet(source.sheet_id)
-        source.last_refreshed_at = datetime.now(UTC); self.session.add(source); self.session.commit()
+        source.last_refreshed_at = datetime.now(timezone.utc); self.session.add(source); self.session.commit()
         return len(rows)
 
 

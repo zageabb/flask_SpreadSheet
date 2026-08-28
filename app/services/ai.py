@@ -1,7 +1,7 @@
 """Approval-first spreadsheet AI proposals backed by an Ollama-compatible API."""
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 import json
 import os
 from typing import Any, Callable
@@ -67,7 +67,7 @@ class AIProposalService:
             proposal.status = "approved"
         else:
             proposal.status = "rejected"
-        proposal.decided_at = datetime.now(UTC); self.session.add(proposal); self.session.commit(); self.session.refresh(proposal)
+        proposal.decided_at = datetime.now(timezone.utc); self.session.add(proposal); self.session.commit(); self.session.refresh(proposal)
         return proposal
 
 

@@ -146,6 +146,15 @@ def test_data_endpoint_returns_validation_errors(client):
     assert "filters" in filters_payload["message"].lower()
 
 
+def test_data_endpoint_uses_pagination_defaults(client):
+    response = client.get("/data", headers={"Accept": "application/json"})
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["page"] == 1
+    assert payload["pageSize"] == 100
+
+
 def test_formula_cells_roundtrip_via_grid_and_data(client):
     sheet_id = client.get("/api/grid").get_json()["sheetId"]
 
