@@ -76,6 +76,11 @@ Validation failures return `400 Bad Request` with an error message from the sche
   - `404 Not Found` when the sheet is missing.
   - `409 Conflict` for duplicate names.
 
+### `GET /api/sheets/<sheet_id>/history`
+- Returns up to 50 recent persisted cell-edit batches, newest first.
+- The optional `limit` query parameter accepts values from 1 to 100.
+- Each revision includes its timestamp, saved dimensions, change count, and cell updates.
+
 ## Import/Export
 ### `POST /api/import`
 - Multipart form upload (`file`, optional `includeHeader` flag). Responds with preview metadata including a generated `previewId` and sample rows. Large previews are truncated to `MAX_IMPORT_ROWS`/`MAX_IMPORT_COLUMNS` from `main.py`.

@@ -106,4 +106,17 @@ class DataSource(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()))
 
 
-__all__ = ["Workbook", "Sheet", "SheetCell", "AIProposal", "DataSource"]
+class SheetRevision(SQLModel, table=True):
+    """Immutable summary of a persisted cell-edit batch."""
+
+    __tablename__ = "sheet_revisions"
+    id: str = Field(default_factory=lambda: uuid4().hex, primary_key=True)
+    sheet_id: int = Field(foreign_key="sheets.id", index=True)
+    change_count: int
+    changes_json: str = Field(sa_column=sa.Column(sa.Text(), nullable=False))
+    row_count: int
+    col_count: int
+    created_at: datetime = Field(default_factory=_utcnow, sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now(), index=True))
+
+
+__all__ = ["Workbook", "Sheet", "SheetCell", "AIProposal", "DataSource", "SheetRevision"]

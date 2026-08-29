@@ -114,6 +114,14 @@ def get_sheets():
     return jsonify({"sheets": sheet_service.list_sheets()})
 
 
+@main_bp.route("/api/sheets/<int:sheet_id>/history", methods=["GET"])
+def sheet_history(sheet_id: int):
+    limit = request.args.get("limit", default=50, type=int)
+    if limit is None or limit < 1 or limit > 100:
+        abort(400, description="History limit must be between 1 and 100")
+    return jsonify({"revisions": sheet_service.list_revisions(sheet_id, limit)})
+
+
 @main_bp.route("/api/sheets/<int:sheet_id>/formatting", methods=["GET", "PATCH"])
 def sheet_formatting(sheet_id: int):
     if request.method == "GET":

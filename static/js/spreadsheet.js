@@ -47,6 +47,11 @@ const dataSourceTable = document.getElementById('data-source-table');
 const dataSourceFeedback = document.getElementById('data-source-feedback');
 const dataOpenButtons = [document.getElementById('connect-data'), document.getElementById('open-data-sources')].filter(Boolean);
 const dataCloseButtons = [document.getElementById('close-data-modal'), document.getElementById('cancel-data-source')].filter(Boolean);
+const historyButton = document.getElementById('open-history');
+const historyModal = document.getElementById('history-modal');
+const historyCloseButton = document.getElementById('close-history-modal');
+const historyList = document.getElementById('history-list');
+const historyFeedback = document.getElementById('history-feedback');
 
 const state = {
   sheetId: initialSheetId,
@@ -60,6 +65,39 @@ const state = {
 };
 
 let pendingImport = null;
+
+function closeHistory() {
+  if (historyModal) historyModal.classList.add('hidden');
+}
+
+async function openHistory() {
+  if (!historyModal || !historyList || !historyFeedback) return;
+  historyModal.classList.remove('hidden');
+  historyList.innerHTML = '';
+  historyFeedback.textContent = 'Loading history…';
+  try {
+    const response = await fetch(`/api/sheets/${state.sheetId}/history`);
+    if (!response.ok) throw new Error('History could not be loaded');
+    const payload = await response.json();
+    const revisions = payload.revisions || [];
+    historyFeedback.textContent = revisions.length ? '' : 'No saved edits yet.';
+    revisions.forEach((revision) => {
+      const item = document.createElement('li');
+      const title = document.createElement('strong');
+      title.textContent = `${revision.changeCount} cell${revision.changeCount === 1 ? '' : 's'} saved`;
+      const detail = document.createElement('span');
+      detail.textContent = `${new Date(revision.createdAt).toLocaleString()} · ${revision.rowCount} × ${revision.colCount}`;
+      item.append(title, detail);
+      historyList.appendChild(item);
+    });
+  } catch (error) {
+    historyFeedback.textContent = error.message;
+  }
+}
+
+if (historyButton) historyButton.addEventListener('click', openHistory);
+if (historyCloseButton) historyCloseButton.addEventListener('click', closeHistory);
+if (historyModal) historyModal.addEventListener('click', (event) => { if (event.target === historyModal) closeHistory(); });
 
 function renderSidebarSheets() {
   if (!sidebarSheetList) return;

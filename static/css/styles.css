@@ -32,6 +32,28 @@ body {
   display: none !important;
 }
 
+.history-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history-list li {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.history-list span {
+  font-size: 0.85rem;
+  opacity: 0.72;
+}
+
 @media (prefers-color-scheme: dark) {
   body {
     background: var(--background-dark);

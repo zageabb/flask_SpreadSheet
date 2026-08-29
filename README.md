@@ -59,6 +59,7 @@ Detailed request/response schemas live in [`docs/api-contracts.md`](docs/api-con
 - Handles CSV/XLSX import by presenting a preview modal, validating headers, and posting confirmed selections back through the service layer.
 - Provides CSV/XLSX export links that stream files without a full page reload.
 - Preserves multi-sheet workbook structure, formulas, number formats and core cell styling through workbook-level XLSX import/export.
+- Records persisted cell-edit batches and exposes recent sheet history from the application sidebar.
 - Provides a compact formatting toolbar for bold, italic, underline and common number formats.
 - Includes an Ollama-backed AI workspace that creates bounded, reviewable cell-change proposals; changes are applied and recalculated only after explicit approval.
 - Supports refreshable CSV and read-only SQLite data sources, plus previewable filter, sort, fill, rename, deduplicate and column-selection transformations.

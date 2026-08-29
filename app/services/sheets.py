@@ -9,7 +9,7 @@ import json
 from flask import abort
 from sqlmodel import Session, select
 
-from ..models import Sheet, SheetCell, Workbook
+from ..models import Sheet, SheetCell, SheetRevision, Workbook
 from ..schemas import (
     CellUpdate,
     DataQueryParams,
@@ -78,6 +78,25 @@ class SheetRepository:
 
     def get_sheet(self, sheet_id: int) -> Sheet | None:
         return self.session.get(Sheet, sheet_id)
+
+    def add_revision(self, sheet_id: int, updates: Sequence[CellUpdate], row_count: int, col_count: int) -> None:
+        changes = [update.model_dump(by_alias=True) for update in updates]
+        self.session.add(SheetRevision(
+            sheet_id=sheet_id,
+            change_count=len(changes),
+            changes_json=json.dumps(changes, separators=(",", ":"), default=str),
+            row_count=row_count,
+            col_count=col_count,
+        ))
+
+    def list_revisions(self, sheet_id: int, limit: int = 50) -> List[SheetRevision]:
+        query = (
+            select(SheetRevision)
+            .where(SheetRevision.sheet_id == sheet_id)
+            .order_by(SheetRevision.created_at.desc(), SheetRevision.id.desc())
+            .limit(limit)
+        )
+        return list(self.session.exec(query))
 
     def add_sheet(self, name: str, row_count: int, col_count: int, workbook_id: int | None = None) -> Sheet:
         if workbook_id is None:
@@ -202,6 +221,21 @@ class SheetService:
         if self.repository.get_sheet(sheet_id) is None:
             abort(404, description="Sheet not found")
         return self.repository.get_cell_formats(sheet_id)
+
+    def list_revisions(self, sheet_id: int, limit: int = 50) -> List[Dict[str, Any]]:
+        if self.repository.get_sheet(sheet_id) is None:
+            abort(404, description="Sheet not found")
+        return [
+            {
+                "id": revision.id,
+                "changeCount": revision.change_count,
+                "changes": json.loads(revision.changes_json),
+                "rowCount": revision.row_count,
+                "colCount": revision.col_count,
+                "createdAt": revision.created_at.isoformat(),
+            }
+            for revision in self.repository.list_revisions(sheet_id, limit)
+        ]
 
     def format_cells(self, sheet_id: int, cells: Iterable[Dict[str, Any]], style: Dict[str, Any], number_format: str | None = None) -> int:
         if self.repository.get_sheet(sheet_id) is None:
@@ -390,6 +424,9 @@ class SheetService:
         calculation = CalculationService(self.repository.session).recalculate_sheet(request.sheet_id)
 
         sheet_id, _, row_count, col_count, _ = self.fetch_sheet(request.sheet_id)
+        if request.updates or request.row_count is not None or request.col_count is not None:
+            self.repository.add_revision(sheet_id, request.updates, row_count, col_count)
+            self.repository.commit()
         return {
             "sheetId": sheet_id,
             "rowCount": row_count,
@@ -591,6 +628,10 @@ def get_cell_formats(sheet_id: int) -> List[Dict[str, Any]]:
     return SheetService(SheetRepository(get_session())).get_cell_formats(sheet_id)
 
 
+def list_revisions(sheet_id: int, limit: int = 50) -> List[Dict[str, Any]]:
+    return SheetService(SheetRepository(get_session())).list_revisions(sheet_id, limit)
+
+
 def format_cells(sheet_id: int, cells: Iterable[Dict[str, Any]], style: Dict[str, Any], number_format: str | None = None) -> int:
     return SheetService(SheetRepository(get_session())).format_cells(sheet_id, cells, style, number_format)
 
@@ -649,6 +690,7 @@ __all__ = [
     "list_workbooks",
     "create_workbook",
     "get_cell_formats",
+    "list_revisions",
     "format_cells",
     "query_sheet_data",
     "rename_sheet",

@@ -155,6 +155,20 @@ def test_data_endpoint_uses_pagination_defaults(client):
     assert payload["pageSize"] == 100
 
 
+def test_cell_writes_are_recorded_in_sheet_history(client):
+    sheet_id = client.get("/api/grid").get_json()["sheetId"]
+    response = client.patch(
+        "/data",
+        json={"sheetId": sheet_id, "updates": [{"row": 0, "col": 0, "value": "Recorded"}]},
+    )
+
+    assert response.status_code == 200
+    history = client.get(f"/api/sheets/{sheet_id}/history").get_json()["revisions"]
+    assert len(history) == 1
+    assert history[0]["changeCount"] == 1
+    assert history[0]["changes"] == [{"row": 0, "col": 0, "value": "Recorded"}]
+
+
 def test_formula_cells_roundtrip_via_grid_and_data(client):
     sheet_id = client.get("/api/grid").get_json()["sheetId"]
 

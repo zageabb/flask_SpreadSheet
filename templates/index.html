@@ -21,7 +21,7 @@
           <button class="nav-item active" type="button" data-view="workbook"><span aria-hidden="true">&#9638;</span><span>Workbook</span></button>
           <button class="nav-item" id="open-data-sources" type="button" data-view="data"><span aria-hidden="true">&#8645;</span><span>Data</span></button>
           <button class="nav-item" type="button" data-view="templates"><span aria-hidden="true">&#9633;</span><span>Templates</span><small>Soon</small></button>
-          <button class="nav-item" type="button" data-view="history"><span aria-hidden="true">&#8634;</span><span>History</span><small>Soon</small></button>
+          <button class="nav-item" id="open-history" type="button" data-view="history"><span aria-hidden="true">&#8634;</span><span>History</span></button>
           <button class="nav-item" type="button" data-view="activity"><span aria-hidden="true">&#9673;</span><span>Activity</span><small>Soon</small></button>
         </nav>
         <div class="sidebar-section">
@@ -177,6 +177,16 @@
           <div id="data-source-feedback" class="import-feedback" role="status"></div>
           <div class="modal-actions"><button type="submit" class="action-btn">Attach and refresh</button><button id="cancel-data-source" type="button" class="action-btn secondary">Cancel</button></div>
         </form>
+      </div>
+    </div>
+
+    <div id="history-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="history-modal-title">
+      <div class="modal-dialog compact-dialog">
+        <button type="button" class="modal-close" id="close-history-modal" aria-label="Close history dialog">&times;</button>
+        <h2 id="history-modal-title">Sheet history</h2>
+        <p class="modal-description">Recent saved cell-edit batches for the active sheet.</p>
+        <div id="history-feedback" class="import-feedback" role="status"></div>
+        <ol id="history-list" class="history-list" aria-live="polite"></ol>
       </div>
     </div>
 
