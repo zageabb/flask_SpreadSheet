@@ -1,5 +1,31 @@
 # Flask Spreadsheet
 
+## Ubuntu server deployment
+
+Verified on **14 September 2026** against the listeners, user systemd services,
+Docker port mappings and deployment registry on `192.168.1.249`.
+
+| Endpoint | Host TCP port | LAN URL |
+|---|---:|---|
+| Application | 5068 | http://192.168.1.249:5068/ |
+
+Checkout: `/home/zageabb/flask/flask_SpreadSheet`.
+
+These are **user** systemd units. Inspect them with:
+
+```bash
+systemctl --user status migrated-flask@flask_SpreadSheet.service
+systemctl --user cat migrated-flask@flask_SpreadSheet.service
+```
+
+Local verification URL: `http://127.0.0.1:5068/api/grid`. HTTP 200 was observed during this audit.
+
+Development defaults and container-internal ports elsewhere in this repository
+may differ from this host deployment. Use the live ports above when accessing
+this Ubuntu server; do not start a second copy on a port already occupied.
+
+[Complete Ubuntu port inventory](https://github.com/zageabb/universal-deployment-agent/blob/main/UBUNTU_PORTS.md).
+
 Flask Spreadsheet is a lightweight web application that mimics a spreadsheet interface. It provides CRUD operations on cells and sheet metadata backed by SQLModel/SQLite, exposes a browser UI powered by AG Grid, and offers JSON APIs for integrating the grid with other systems.
 
 The application now uses a workbook-first domain model. Every sheet belongs to a workbook, and cells retain formula, calculated-value, type, number-format, style and error fields alongside the original raw value for backward-compatible clients.
