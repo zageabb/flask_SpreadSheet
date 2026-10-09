@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
+    <base href="{{ request.script_root }}/">
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Flask Spreadsheet</title>
@@ -71,7 +72,7 @@
               <button id="connect-data" type="button" class="action-btn">Connect data</button>
               <a id="download-csv" class="action-btn secondary" href="#" role="button">CSV</a>
               <a id="download-xlsx" class="action-btn secondary" href="#" role="button">Sheet XLSX</a>
-              <a id="download-workbook-xlsx" class="action-btn secondary" href="/api/workbooks/{{ workbook.id }}/export.xlsx" role="button">Workbook XLSX</a>
+              <a id="download-workbook-xlsx" class="action-btn secondary" href="{{ request.script_root }}/api/workbooks/{{ workbook.id }}/export.xlsx" role="button">Workbook XLSX</a>
             </div>
           </div>
         </header>
