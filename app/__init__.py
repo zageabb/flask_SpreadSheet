@@ -5,6 +5,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import DevelopmentConfig, config_by_name
 from .services.database import close_db, configure_engine, get_session, run_migrations
@@ -49,6 +50,9 @@ def create_app(config_name: str | None = None) -> Flask:
         template_folder=str(project_root / "templates"),
         static_folder=str(project_root / "static"),
     )
+
+    # Trust only the isolated UDA/Caddy forwarding hop.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1, x_prefix=1)
 
     config_key = (config_name or os.getenv("FLASK_CONFIG", "development")).lower()
     config_object = config_by_name.get(config_key, DevelopmentConfig)
