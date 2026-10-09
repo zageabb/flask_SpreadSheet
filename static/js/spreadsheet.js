@@ -1,3 +1,5 @@
+const spreadsheetAppUrl = path => typeof path === 'string' && path.startsWith('/') && !path.startsWith('//') ? new URL(path.slice(1), document.baseURI).toString() : path;
+const fetchSpreadsheet = (url, options) => window.fetch(spreadsheetAppUrl(url), options);
 const gridContainer = document.getElementById('sheet');
 const statusElement = document.getElementById('status');
 const addRowButton = document.getElementById('add-row');
@@ -76,7 +78,7 @@ async function openHistory() {
   historyList.innerHTML = '';
   historyFeedback.textContent = 'Loading history…';
   try {
-    const response = await fetch(`/api/sheets/${state.sheetId}/history`);
+    const response = await fetchSpreadsheet(`/api/sheets/${state.sheetId}/history`);
     if (!response.ok) throw new Error('History could not be loaded');
     const payload = await response.json();
     const revisions = payload.revisions || [];
@@ -157,7 +159,7 @@ function agCellStyle(row, col) {
 async function loadCellFormats() {
   state.formats.clear();
   try {
-    const response = await fetch(`/api/sheets/${state.sheetId}/formatting`);
+    const response = await fetchSpreadsheet(`/api/sheets/${state.sheetId}/formatting`);
     if (!response.ok) return;
     const payload = await response.json();
     (payload.cells || []).forEach((item) => state.formats.set(keyFor(item.row, item.col), item));
@@ -175,7 +177,7 @@ async function applyActiveFormat(style, numberFormat = undefined) {
   const current = state.formats.get(keyFor(row, col)) || { style: {}, numberFormat: null };
   const nextStyle = { ...current.style, ...style };
   const nextNumberFormat = numberFormat === undefined ? current.numberFormat : numberFormat;
-  const response = await fetch(`/api/sheets/${state.sheetId}/formatting`, {
+  const response = await fetchSpreadsheet(`/api/sheets/${state.sheetId}/formatting`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ cells: [{ row, col }], style: nextStyle, numberFormat: nextNumberFormat }),
   });
@@ -211,7 +213,7 @@ function renderAIProposal(proposal) {
   actions.append(approve, reject); aiProposal.append(title, explanation, impact, actions); aiProposal.classList.remove('hidden');
   const decide = async (decision) => {
     approve.disabled = true; reject.disabled = true;
-    const response = await fetch(`/api/ai/proposals/${proposal.id}/${decision}`, { method: 'POST' });
+    const response = await fetchSpreadsheet(`/api/ai/proposals/${proposal.id}/${decision}`, { method: 'POST' });
     if (!response.ok) { setStatus('AI proposal decision failed', 'error'); approve.disabled = false; reject.disabled = false; return; }
     aiProposal.classList.add('hidden');
     if (decision === 'approve') { await loadGrid(state.sheetId); setStatus('AI changes approved and applied', 'success'); }
@@ -226,7 +228,7 @@ async function requestAIProposal(prompt) {
   aiSend.disabled = true; setStatus('AI is preparing a proposal…', 'info');
   const selection = state.activeCell ? { start: state.activeCell, end: state.activeCell } : {};
   try {
-    const response = await fetch('/api/ai/proposals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sheetId: state.sheetId, prompt, selection }) });
+    const response = await fetchSpreadsheet('/api/ai/proposals', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sheetId: state.sheetId, prompt, selection }) });
     if (!response.ok) throw new Error(await extractErrorMessage(response));
     renderAIProposal(await response.json()); setStatus('AI proposal ready for review', 'success');
   } catch (error) { setStatus(error.message || 'AI assistant is unavailable', 'error'); }
@@ -248,10 +250,10 @@ if (dataSourceForm) dataSourceForm.addEventListener('submit', async (event) => {
   const body = new FormData(); body.append('file', dataSourceFile.files[0]); body.append('sheetId', String(state.sheetId)); body.append('kind', kind); body.append('options', JSON.stringify(options));
   if (dataSourceFeedback) dataSourceFeedback.textContent = 'Attaching source…';
   try {
-    const created = await fetch('/api/data-sources', { method: 'POST', body });
+    const created = await fetchSpreadsheet('/api/data-sources', { method: 'POST', body });
     if (!created.ok) throw new Error(await extractErrorMessage(created));
     const source = await created.json();
-    const refreshed = await fetch(`/api/data-sources/${source.id}/refresh`, { method: 'POST' });
+    const refreshed = await fetchSpreadsheet(`/api/data-sources/${source.id}/refresh`, { method: 'POST' });
     if (!refreshed.ok) throw new Error(await extractErrorMessage(refreshed));
     const result = await refreshed.json(); dataModal?.classList.add('hidden'); await loadGrid(state.sheetId); setStatus(`Data refreshed: ${result.refreshedRows} rows`, 'success');
   } catch (error) { if (dataSourceFeedback) { dataSourceFeedback.textContent = error.message || 'Unable to connect data'; dataSourceFeedback.className = 'import-feedback error'; } }
@@ -903,7 +905,7 @@ async function loadGrid(sheetId = state.sheetId) {
     }
     url.searchParams.set('page', '1');
     url.searchParams.set('pageSize', '0');
-    const response = await fetch(url);
+    const response = await fetchSpreadsheet(url);
     if (!response.ok) {
       throw new Error('Failed to load grid');
     }
@@ -964,7 +966,7 @@ async function saveChanges({ updates = [], rowCount = null, colCount = null }) {
       payload.colCount = colCount;
     }
     const method = rowCount !== null || colCount !== null ? 'POST' : 'PATCH';
-    const response = await fetch('/data', {
+    const response = await fetchSpreadsheet('/data', {
       method,
       headers: {
         'Content-Type': 'application/json',
@@ -1108,7 +1110,7 @@ if (importForm) {
       if (importConfirmButton) {
         importConfirmButton.disabled = true;
       }
-      const response = await fetch('/import', {
+      const response = await fetchSpreadsheet('/import', {
         method: 'POST',
         body: formData,
       });
@@ -1154,7 +1156,7 @@ if (importConfirmButton) {
       importConfirmButton.disabled = true;
       setImportFeedback('Importing data…');
       setStatus('Importing data…', 'info');
-      const response = await fetch('/import/confirm', {
+      const response = await fetchSpreadsheet('/import/confirm', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1217,7 +1219,7 @@ if (renameButton) {
     }
     try {
       setStatus('Renaming…', 'info');
-      const response = await fetch(`/api/sheets/${state.sheetId}`, {
+      const response = await fetchSpreadsheet(`/api/sheets/${state.sheetId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -1256,7 +1258,7 @@ if (saveSheetButton) {
     const snapshot = collectSheetSnapshot();
     try {
       setStatus('Saving copy…', 'info');
-      const response = await fetch('/api/sheets', {
+      const response = await fetchSpreadsheet('/api/sheets', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
