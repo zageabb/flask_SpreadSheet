@@ -44,7 +44,12 @@ class ExcelWorkbookService:
         return workbook.name, buffer
 
     def import_workbook(self, stream: BinaryIO, source_name: str) -> int:
-        source = load_workbook(stream, data_only=False)
+        # Werkzeug may expose uploads as SpooledTemporaryFile objects that do
+        # not implement the complete seekable-file protocol expected by
+        # openpyxl on every supported Python version.  Materialise the upload
+        # into a standard in-memory binary stream before parsing it.
+        stream.seek(0)
+        source = load_workbook(io.BytesIO(stream.read()), data_only=False)
         workbook = Workbook(name=Path(source_name).stem or "Imported workbook")
         self.session.add(workbook)
         self.session.flush()
